@@ -1,0 +1,23 @@
+[package]
+name = "atommapper-mces"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Step-budgeted connected common fragment search for atommapper's Stage 1"
+
+[lib]
+name = "_mces"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# The Python binding; maturin enables it. `cargo test` runs without it, so the engine's
+# tests link without a Python interpreter.
+python = ["dep:pyo3"]
+
+[dependencies]
+pyo3 = { version = "0.25", optional = true }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
