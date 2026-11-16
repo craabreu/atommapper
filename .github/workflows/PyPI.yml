@@ -1,0 +1,84 @@
+name: PyPI
+
+# Builds the wheels and the sdist on every published release and uploads them to PyPI
+# through trusted publishing (no token). Running it by hand builds everything and uploads
+# nothing, as a dry run.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - uses: actions/checkout@v4
+      # A release whose tag does not match pyproject.toml would publish the wrong version.
+      - run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$version" != "$tag" ]; then
+            echo "pyproject.toml version ($version) does not match release tag ($tag)"
+            exit 1
+          fi
+
+  wheels:
+    name: wheel (${{ matrix.os }}, ${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64, smoke: true }
+          - { os: ubuntu-latest, target: aarch64, smoke: false }
+          - { os: macos-14, target: aarch64, smoke: true }
+          - { os: macos-14, target: x86_64, smoke: false }
+          - { os: windows-latest, target: x64, smoke: true }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # One abi3 wheel per platform serves Python 3.11 and later.
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist
+          manylinux: auto
+      - if: matrix.smoke
+        shell: bash
+        run: |
+          pip install dist/*.whl
+          atommapper "Cc1ccc(F)cc1" "Cc1cccc(F)c1"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.os }}-${{ matrix.target }}
+          path: dist/*.whl
+
+  sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  publish:
+    needs: [version, wheels, sdist]
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1

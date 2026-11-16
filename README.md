@@ -7,15 +7,19 @@ reaction SMILES, an atom mapping, and the atoms and bonds that change.
 
 ## Install
 
-The search engine is written in Rust, so building from source needs a Rust toolchain
-([rustup.rs](https://rustup.rs)):
+```bash
+pip install atommapper
+```
+
+Wheels cover Linux (x86_64 and aarch64), macOS (Intel and Apple silicon) and Windows, for
+Python 3.11 and later; RDKit, NetworkX and SciPy come as dependencies. Elsewhere pip builds
+from source, which needs a Rust toolchain ([rustup.rs](https://rustup.rs)), as does a
+development install:
 
 ```bash
 git clone https://github.com/craabreu/atommapper.git && cd atommapper
 pip install -e .
 ```
-
-Python 3.11 or later; RDKit, NetworkX and SciPy are installed as dependencies.
 
 ## Quick start
 
@@ -205,4 +209,4 @@ atommapper was extracted from moldelta, a molecule-diff tool, where this mapping
 
 ## License
 
-MIT; see [LICENSE](LICENSE).
+MIT; see [LICENSE](https://github.com/craabreu/atommapper/blob/main/LICENSE).

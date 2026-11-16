@@ -3,6 +3,8 @@ name = "atommapper-mces"
 version = "0.1.0"
 edition = "2021"
 publish = false
+license = "MIT"
+repository = "https://github.com/craabreu/atommapper"
 description = "Step-budgeted connected common fragment search for atommapper's Stage 1"
 
 [lib]

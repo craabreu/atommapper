@@ -12,6 +12,10 @@ license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = ["rdkit>=2025.3", "networkx>=3.2", "scipy>=1.11"]
 
+[project.urls]
+Repository = "https://github.com/craabreu/atommapper"
+Issues = "https://github.com/craabreu/atommapper/issues"
+
 [project.optional-dependencies]
 test = ["pytest>=8"]
 dev = ["ruff>=0.15", "ty>=0.0.90", "pre-commit>=4"]
@@ -25,7 +29,7 @@ atommapper = "atommapper.cli:main"
 manifest-path = "rust/Cargo.toml"
 python-source = "src"
 module-name = "atommapper._mces"
-features = ["python", "pyo3/extension-module"]
+features = ["python", "pyo3/extension-module", "pyo3/abi3-py311"]
 
 [tool.ruff]
 line-length = 100
