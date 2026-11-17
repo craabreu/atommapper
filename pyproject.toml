@@ -20,7 +20,7 @@ dev = ["ruff>=0.15", "ty>=0.0.90", "pre-commit>=4"]
 atommapper = "atommapper.cli:main"
 
 [tool.maturin]
-# Mixed project: Python under src/, the Stage 1 engine in rust/, built as
+# Mixed project: Python under src/, the fragment search engine in rust/, built as
 # atommapper._mces. Building from source needs a Rust toolchain.
 manifest-path = "rust/Cargo.toml"
 python-source = "src"

@@ -67,7 +67,7 @@ def test_the_node_budget_is_a_total_for_the_call():
     assert result.status == "timed_out" and result.metadata["budget"]["stopped_by"] == "nodes"
 
 
-# Branched alkanes whose Stage 1 needs millions of steps: over 30 s (the whole step budget)
+# Branched alkanes whose fragment search needs millions of steps: over 30 s (the whole step budget)
 # without a time limit.
 DENDRIMERS = (
     "CC(C)(C)CC(CC(C)(C)C)(CC(C)(C)C)CC(CC(C)(C)C)(CC(C)(C)C)CC(C)(C)C",
@@ -75,14 +75,14 @@ DENDRIMERS = (
 )
 
 
-def test_the_time_limit_bounds_the_whole_call_stage_1_included():
+def test_the_time_limit_bounds_the_whole_call_the_fragment_search_included():
     start = time.perf_counter()
     result = map_atoms(*DENDRIMERS, settings=Settings(time_limit_s=0.2))
     elapsed = time.perf_counter() - start
     assert result.status == "timed_out"
-    assert result.metadata["stage1"]["stopped_by"] == "time"
+    assert result.metadata["fragment_search"]["stopped_by"] == "time"
     assert "time" in result.metadata["budget"]["stopped_by"].split(",")
-    # The fragments Stage 1 found by the deadline still seed the search: map_atoms once
+    # The fragments found by the deadline still seed the search: map_atoms once
     # dropped them all and fell back to a single atom pair.
     assert len(result.mapping) > 1
     assert elapsed < 0.2 + 1.0
@@ -91,8 +91,8 @@ def test_the_time_limit_bounds_the_whole_call_stage_1_included():
 def test_a_zero_time_limit_searches_nothing_and_says_so():
     result = map_atoms("Cc1ccc(F)cc1", "Cc1cccc(F)c1", settings=Settings(time_limit_s=0.0))
     assert result.status == "timed_out"
-    assert result.metadata["stage1"]["stopped_by"] == "time"
-    assert result.metadata["stage1"]["steps"] == 0
+    assert result.metadata["fragment_search"]["stopped_by"] == "time"
+    assert result.metadata["fragment_search"]["steps"] == 0
 
 
 def test_a_nan_time_limit_is_rejected_by_settings():
@@ -104,11 +104,80 @@ def test_a_nan_time_limit_is_rejected_by_settings():
 
 
 def test_the_time_limit_bounds_the_set_up_of_a_large_search_graph():
-    # 19,460 bond pairs: building Stage 1's search graph took 1.7 s, so a 0.2 s limit
+    # 19,460 bond pairs: building the search graph took 1.7 s, so a 0.2 s limit
     # took 2.2 s before the engine read the clock there.
     start = time.perf_counter()
     result = map_atoms("C" * 140, "C" * 141, settings=Settings(time_limit_s=0.2))
     elapsed = time.perf_counter() - start
     assert result.status == "timed_out"
-    assert result.metadata["stage1"]["stopped_by"] == "time"
+    assert result.metadata["fragment_search"]["stopped_by"] == "time"
     assert elapsed < 0.2 + 1.0
+
+
+# Two dimeric morphinans (MoleculeACE, CHEMBL237). With elements free to change, the
+# fragment search runs on element labels (4,550 steps here) and then on ring and chain
+# labels alone, the coarse pass: 394,221 steps (about 10 s) that find no better fragment.
+MORPHINAN_DIMERS = (
+    "c1cc2c(cc1OCCCCCCCCCCOc1ccc3c(c1)[C@@]14CCCC[C@H]1[C@@H](C3)N(CC1CCC1)CC4)"
+    "[C@@]13CCCC[C@H]1[C@@H](C2)N(CC1CCC1)CC3",
+    "Oc1cc2c(cc1CNCCCCCCNCc1cc3c(cc1O)[C@@]14CCCC[C@H]1[C@@H](C3)N(CC1CCC1)CC4)"
+    "C[C@@H]1[C@@H]3CCCC[C@]23CCN1CC1CCC1",
+)
+
+
+def test_the_coarse_pass_stops_at_its_cap_and_the_call_completes():
+    result = map_atoms(*MORPHINAN_DIMERS, allow_stereo_inversion=True)
+    search = result.metadata["fragment_search"]
+    assert result.status == "complete"
+    assert search["coarse_capped"] is True
+    assert search["stopped_by"] is None
+    assert search["steps"] <= 4_550 + Settings().coarse_fragment_steps
+    # The change the uncapped search finds (coarse_fragment_steps=1_000_000, 10 s).
+    assert result.metadata["size"] == 142
+
+
+def test_the_step_budget_running_out_in_the_coarse_pass_is_a_stop_not_the_cap():
+    # 4,550 steps on element labels leave the coarse pass fewer than its cap.
+    result = map_atoms(
+        *MORPHINAN_DIMERS, allow_stereo_inversion=True, settings=Settings(fragment_steps=50_000)
+    )
+    assert result.status == "timed_out"
+    assert result.metadata["fragment_search"]["stopped_by"] == "steps"
+    assert result.metadata["fragment_search"]["coarse_capped"] is False
+
+
+def test_a_cap_the_coarse_pass_does_not_reach_is_not_reported():
+    result = map_atoms("Cc1ccc(F)cc1", "Cc1cccc(F)c1")
+    assert result.status == "complete"
+    assert result.metadata["fragment_search"]["coarse_capped"] is False
+
+
+def test_with_elements_fixed_there_is_no_coarse_pass_to_cap():
+    result = map_atoms(
+        "Cc1ccc(F)cc1",
+        "Cc1cccc(F)c1",
+        element_change=False,
+        settings=Settings(coarse_fragment_steps=0),
+    )
+    assert result.status == "complete"
+    assert result.metadata["fragment_search"]["coarse_capped"] is False
+    assert len(result.mapping) == 7
+
+
+def test_a_zero_cap_skips_the_coarse_pass():
+    result = map_atoms("Cc1ccc(F)cc1", "Cc1cccc(F)c1", settings=Settings(coarse_fragment_steps=0))
+    assert result.status == "complete"
+    assert result.metadata["fragment_search"]["coarse_capped"] is True
+
+
+def test_a_negative_cap_is_rejected_by_settings():
+    with pytest.raises(ValueError, match="coarse_fragment_steps"):
+        Settings(coarse_fragment_steps=-1)
+
+
+def test_the_renamed_settings_bound_the_fragment_search():
+    assert map_atoms("CCCCCC", "CCCCCC", settings=Settings(fragment_bond_pairs=10)).status == (
+        "timed_out"
+    )
+    capped = map_atoms("CCCC", "CCCC", settings=Settings(max_fragments=1))
+    assert len(capped.mapping) == 4

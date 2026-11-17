@@ -19,7 +19,7 @@ format:
 types:
 	$(TY) check src tests
 
-# The Stage 1 engine. PYO3_PYTHON points the binding's build at the same interpreter.
+# The fragment search engine. PYO3_PYTHON points the binding's build at the same interpreter.
 rust:
 	cd rust && cargo fmt --check
 	cd rust && PYO3_PYTHON=$$(command -v $(PYTHON)) cargo clippy --all-targets --features python -- -D warnings

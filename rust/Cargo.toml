@@ -3,7 +3,7 @@ name = "atommapper-mces"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Step-budgeted connected common fragment search for AtomMapper's Stage 1"
+description = "Step-budgeted connected common fragment search for AtomMapper"
 
 [lib]
 name = "_mces"

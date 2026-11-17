@@ -68,13 +68,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--nodes", type=int, default=None, help="branch-and-bound nodes for the whole call"
     )
     parser.add_argument(
-        "--steps", type=int, default=None, help="Stage 1 search steps for the whole call"
+        "--steps", type=int, default=None, help="fragment search steps for the whole call"
     )
     parser.add_argument(
         "--pairs",
         type=int,
         default=None,
-        help="ceiling on compatible bond pairs Stage 1 searches (default 20000)",
+        help="ceiling on compatible bond pairs the fragment search takes (default 20000)",
     )
     parser.add_argument(
         "--timeout", type=float, default=None, help="wall-clock limit for the whole call, seconds"
@@ -97,8 +97,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     defaults = Settings()
     settings = Settings(
         node_budget=defaults.node_budget if args.nodes is None else args.nodes,
-        stage1_steps=defaults.stage1_steps if args.steps is None else args.steps,
-        stage1_bond_pairs=defaults.stage1_bond_pairs if args.pairs is None else args.pairs,
+        fragment_steps=defaults.fragment_steps if args.steps is None else args.steps,
+        fragment_bond_pairs=defaults.fragment_bond_pairs if args.pairs is None else args.pairs,
         time_limit_s=defaults.time_limit_s if args.timeout is None else args.timeout,
     )
     try:
