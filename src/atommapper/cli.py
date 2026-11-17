@@ -5,9 +5,20 @@ import json
 import sys
 from collections.abc import Sequence
 
+from .drawing import save_image
 from .errors import InvalidInput
 from .mapper import map_atoms
 from .settings import Settings
+
+
+def _panel_size(text: str) -> tuple[int, int]:
+    try:
+        width, height = (int(part) for part in text.lower().split("x"))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"--size must look like 400x300, got {text!r}") from None
+    if width <= 0 or height <= 0:
+        raise argparse.ArgumentTypeError(f"--size must be positive, got {text!r}")
+    return width, height
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -19,6 +30,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("source", help="source molecule SMILES")
     parser.add_argument("target", help="target molecule SMILES")
     parser.add_argument("--json", action="store_true", help="print the full result as JSON")
+    parser.add_argument(
+        "--draw",
+        metavar="FILE",
+        help="also draw the mapped pair to FILE, as SVG or PNG by its suffix (.svg, .png)",
+    )
+    parser.add_argument(
+        "--size",
+        metavar="WxH",
+        type=_panel_size,
+        default="400x300",
+        help="size of each panel of the drawing, in pixels (default 400x300)",
+    )
+    parser.add_argument(
+        "--numbers",
+        action="store_true",
+        help="label the kept atoms of the drawing with their identifiers",
+    )
     parser.add_argument(
         "--objective",
         choices=("change", "bonds"),
@@ -62,7 +90,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.draw is not None and not args.draw.lower().endswith((".svg", ".png")):
+        parser.error(f"--draw takes a .svg or .png file, got {args.draw!r}")
     defaults = Settings()
     settings = Settings(
         node_budget=defaults.node_budget if args.nodes is None else args.nodes,
@@ -89,6 +120,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(result.to_dict(), indent=2, default=str))
     else:
         print(result.reaction_smiles)
+    if args.draw is not None:
+        width, height = args.size
+        save_image(result, args.draw, width=width, height=height, numbers=args.numbers)
     if result.status == "timed_out" and not args.accept_partial:
         print(f"atommapper: {result.reason}", file=sys.stderr)
         return 3

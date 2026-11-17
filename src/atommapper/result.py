@@ -73,6 +73,13 @@ class MappingResult:
             "metadata": self.metadata,
         }
 
+    def _repr_svg_(self) -> str | None:
+        """The drawing a notebook shows (``drawing.draw_svg``); none for a result with
+        nothing to draw."""
+        from .drawing import draw_svg
+
+        return draw_svg(self) if self.reaction_smiles else None
+
     def reverse(self) -> "MappingResult":
         """Swap sides, invert the edits and renumber, without searching again."""
         metadata = {**self.metadata, "reversed": not self.metadata.get("reversed", False)}
