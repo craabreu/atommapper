@@ -1,275 +1,295 @@
 # AtomMapper
 
-Atom mapping of two molecules under the rules of LOMAP's mapping step. Given a source
-and a target, it finds which heavy atoms are the same atom, keeping one connected piece
-with whole rings and no inverted stereocentre, and it reports the result as a numbered
-reaction SMILES, an atom mapping, and the atoms and bonds that change.
+**Fast atom mapping for pairs of related molecules.** AtomMapper identifies a shared
+core and reports which atoms and bonds are added, removed, or changed. It accepts SMILES
+strings or RDKit molecules and returns an atom correspondence, a mapped reaction SMILES,
+and a structured list of changes. No 3D coordinates are needed.
+
+AtomMapper follows mapping constraints based on OpenFE's LOMAP: a connected core,
+complete rings, and preserved stereochemistry by default. Its search engine is written
+in Rust, with a Python API and command-line interface.
+
+**In the included benchmarks, AtomMapper used 17–102× less total mapping time than
+LOMAP's mapping step** across 3,529 molecular pairs. Most of the gain comes from avoiding
+LOMAP's slowest searches; the median per-pair speedup was 1.1–2.3×. With the bond-maximizing
+objective, 95–98% of mappings agreed with LOMAP up to symmetry, excluding LOMAP timeouts.
+These measurements cover mapping, not similarity scoring or network planning.
+See the [benchmark results and methodology](https://github.com/craabreu/atommapper/blob/main/benchmarks/README.md).
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/craabreu/atommapper/main/docs/images/example.png" width="820"
-       alt="Two related ligands side by side: kept atoms aligned, a hydroxyl removed, a triazolylmethyl group added, three methyl carbons become fluorines, and a new stereocentre labelled R">
+       alt="Two EG5 ligands with their shared core aligned and atoms and bonds highlighted as removed, added, or changed">
 </p>
 
-Two ligands of the EG5 series of the protein-ligand benchmark. Kept atoms sit at the same
-place in both panels; the hydroxyl leaves, a triazolylmethyl group arrives, the three
-methyl carbons of the *tert*-butyl become the fluorines of a trifluoromethyl, and a ring
-carbon becomes a stereocentre. The drawing comes from
-`atommapper SOURCE TARGET --draw example.png` (see Drawings).
+*Two EG5 ligands from the protein-ligand benchmark. The shared core is aligned; colors
+show removed, added, and changed atoms and bonds. AtomMapper can generate these drawings
+from either the command line or Python.*
 
-## Install
+## Installation
 
-The search engine is written in Rust, so building from source needs a Rust toolchain
-([rustup.rs](https://rustup.rs)):
+Requires **Python 3.11 or later**.
 
 ```bash
-git clone https://github.com/craabreu/atommapper.git && cd atommapper
-pip install -e .
+python -m pip install atommapper
 ```
 
-Python 3.11 or later; RDKit, NetworkX and SciPy are installed as dependencies.
+RDKit, NetworkX, and SciPy are installed as dependencies. If pip builds from source
+instead of installing a compatible wheel, you also need a
+[Rust toolchain](https://rustup.rs). For an editable checkout, see [Development](#development).
 
 ## Quick start
 
-```bash
-atommapper "Cc1ccc(F)cc1" "Cc1cccc(F)c1"
-```
-
-```
-[CH3:1][c:6]1[cH:2][cH:4][c:7]([F:8])[cH:5][cH:3]1>>[CH3:1][c:6]1[cH:2][cH:4][cH:7][c:5]([F:9])[cH:3]1
-```
-
-Atoms with the same number on both sides are the same atom. A number found on one side
-only is an atom that leaves (8, the para fluorine) or arrives (9, the meta fluorine).
-
-In Python:
+### Python
 
 ```python
 from atommapper import map_atoms
 
 result = map_atoms("Cc1ccc(F)cc1", "Cc1cccc(F)c1")
-result.reaction_smiles   # the numbered source>>target string
-result.mapping           # MappedAtom(identifier, source_index, target_index, tag) per kept atom
-result.atom_changes      # atoms deleted, inserted, or changed (element, charge, hydrogens, stereo)
-result.bond_changes      # bonds deleted, inserted, or changed in order
-result.metadata["size"]  # 4: one atom and one bond out, one atom and one bond in
+
+print(result.status)            # complete
+print(result.metadata["size"])  # 4: one atom and one bond removed, one of each added
+print(result.reaction_smiles)
+
+# Zero-based atom indices: source atom -> target atom
+atom_map = {atom.source_index: atom.target_index for atom in result.mapping}
 ```
 
-`source_index` and `target_index` are atom indices of the inputs as given, which can be
-SMILES strings or RDKit molecules.
+Each entry in `result.mapping` connects a source atom to a target atom. A mapped atom
+can change element by default; use `element_change=False` to require matching elements.
+Atoms outside the mapping are reported in `result.atom_changes`, and bond changes in
+`result.bond_changes`.
 
-## Drawings
+You can also pass RDKit `Chem.Mol` objects directly. The input molecules are copied,
+not modified, and existing atom-map numbers are ignored. Returned indices refer to the
+input molecules; for SMILES, they follow RDKit's parsing order with explicit hydrogens
+retained. Ordinary explicit hydrogens are then merged into their attached atoms for the
+search. Pass `Chem.Mol` objects when you need indices tied to molecules already in your
+workflow.
 
-`--draw FILE` also draws the pair, as SVG or PNG by the file's suffix:
+### Command line
 
 ```bash
-atommapper "Cc1ccc(F)cc1" "Cc1cccc(F)c1" --draw walk.png --size 400x300
+atommapper "Cc1ccc(F)cc1" "Cc1cccc(F)c1"
 ```
 
-The source and the target sit side by side, each panel `--size` pixels, over a legend that
-counts what is kept, removed, added and changed, with atoms and bonds in separate rows.
+```text
+[CH3:1][c:6]1[cH:2][cH:4][c:7]([F:8])[cH:5][cH:3]1>>[CH3:1][c:6]1[cH:2][cH:4][cH:7][c:5]([F:9])[cH:3]1
+```
 
-- **Aligned.** Both panels share one scale and one origin, and the target is drawn with its
-  kept atoms where the source has them, so a kept atom is at the same place in each panel.
-- **Marked.** Light tints under the structure show what leaves (vermillion, on the source),
-  what arrives (sky blue, on the target), and which kept atoms and bonds change (yellow, on
-  both): element, charge, bond order or stereo. The three colors stay apart under
-  deuteranopia, protanopia and tritanopia, and the legend names each one.
-- **Stereo.** An inverted centre carries its label on each side, (R) and (S), and an
-  inverted double bond (E) and (Z). Every double bond is drawn with the geometry the
-  molecule has, even when that moves kept atoms away from the source's positions.
-- **Not marked.** A changed hydrogen count, since the bond that forms or breaks at the atom
-  already shows it.
+The same atom-map number on both sides identifies a mapped pair. A number on only one
+side identifies a removed or added atom: here, fluorine 8 is removed and fluorine 9 is
+added. These **one-based identifiers are different from the zero-based input indices**.
+The `source>>target` notation describes the correspondence; it does not predict a chemical
+reaction or mechanism.
 
-`--numbers` labels the kept atoms with their identifiers.
+```bash
+# Full result, including status, atom indices, changes, and search metadata
+atommapper "CCO" "CC=O" --json
 
-In a notebook, a result displays as this drawing. In Python:
+# Save a drawing as well as printing the mapped SMILES
+atommapper "Cc1ccc(F)cc1" "Cc1cccc(F)c1" --draw walk.svg --numbers
+
+atommapper --help
+```
+
+## Choosing a mapping
+
+```text
+map_atoms(source, target, *, element_change=True, objective="change",
+          allow_stereo_inversion=False, settings=None)
+```
+
+| Option | Default behavior | Alternative |
+|---|---|---|
+| `objective` | `"change"`: minimize the size of the change | `"bonds"`: maximize kept bonds, then kept atoms, then minimize change |
+| `element_change` | `True`: mapped atoms may change element | `False` / `--fixed-elements`: require matching elements |
+| `allow_stereo_inversion` | `False`: reject mappings that invert a retained stereo element | `True` / `--allow-stereo-inversion`: allow inversions and count each as one change |
+| `settings` | Default search budgets and time limit | A `Settings` instance; see [Search limits](#search-limits) |
+
+The change size counts each inserted or deleted atom or bond, each element change, and
+each bond-order change as one. Allowed stereo inversions also count as one. Other
+attribute changes, such as charge and hydrogen count, are reported but do not add to this
+objective. Consequently, `metadata["size"]` is **not the number of entries** in the change
+lists, nor a free-energy or chemical-similarity score.
+
+For example, pyridine and benzene can keep all six ring atoms with `element_change=True`.
+With `element_change=False`, they have no valid shared core because preserving the five
+carbons alone would leave an incomplete ring.
+
+Use `objective="bonds"` (`--objective bonds`) for a bond-maximizing comparison with LOMAP.
+AtomMapper applies constraints during its search and uses stricter stereo checks, so
+identical mappings are not guaranteed. It does not provide LOMAP's hydrogen mapping,
+similarity scores, or network planner.
+
+## Drawings and notebooks
+
+A `MappingResult` displays as an SVG drawing in notebooks. To save or render it explicitly:
 
 ```python
 from atommapper import draw_png, draw_svg, map_atoms, save_image
 
 result = map_atoms("Cc1ccc(F)cc1", "Cc1cccc(F)c1")
 svg = draw_svg(result, width=400, height=300)  # SVG text
-png = draw_png(result, numbers=True)           # PNG bytes, kept atoms numbered
-save_image(result, "walk.svg")                 # SVG or PNG by the suffix
+png = draw_png(result, numbers=True)          # PNG bytes
+save_image(result, "walk.svg")               # .svg or .png selects the format
 ```
 
-## The rules
+The source and target appear side by side with their shared atoms aligned. Each panel is
+400 × 300 pixels by default, with a legend below. Set `width` and `height` in Python or
+`--size 400x300` on the command line to change the panel size.
 
-What is kept must satisfy all of these:
+Removed atoms and bonds are vermillion, additions are blue, and changes are yellow.
+Hydrogen-count changes are omitted from the highlights. Stereo inversions carry R/S or
+E/Z labels; preserving double-bond geometry can require moving some mapped atoms out of
+alignment. `numbers=True` (`--numbers`) labels mapped atoms with their identifiers.
 
-- **One piece.** The kept atoms, joined by kept bonds, form one connected piece. Atoms with
-  no bond on either side, such as counter-ions, are exempt.
-- **Ring to ring.** A ring atom is kept only as a ring atom, and a chain atom only as a
-  chain atom.
-- **Complete rings.** Every kept ring atom and ring bond lies on a cycle of the kept part:
-  a ring is kept whole or not at all, one ring at a time, so a benzene can be kept as one
-  ring of a naphthalene. A methylcyclohexane and a methylcyclopentane keep no ring atom.
-- **No bond lost between kept atoms.** Two kept atoms bonded on one side are bonded on the
-  other, so fused rings are not matched along a different fusion bond. LOMAP checks this
-  on the first molecule only; here it is checked on both.
-- **No inverted stereo element.** A kept tetrahedral centre keeps its configuration, and so
-  does a kept double bond whose neighbours are kept. A centre's hydrogen counts as kept
-  with it, so two kept heavy neighbours can already fix the configuration. LOMAP names
-  chiral atoms only; this rule leaves no stereo element free.
-- **Heavy atoms only.** Hydrogens are not mapped; a changed hydrogen count is a change of
-  its atom.
+## Working with results
 
-Among the mappings that satisfy the rules, the objective decides:
+`map_atoms` returns a `MappingResult`:
 
-- `objective="change"` (the default) keeps the smallest change. Each atom or bond present
-  on one side only counts one, and so does each kept atom whose element changes and each
-  kept bond whose order changes.
-- `objective="bonds"` is LOMAP's: the most bonds kept, whatever their orders, then the most
-  atoms, then the smallest change.
+| Field | Meaning |
+|---|---|
+| `reaction_smiles` | Mapped `source>>target` SMILES; mapped atoms are numbered first, then source-only and target-only atoms |
+| `mapping` | Tuple of `MappedAtom(identifier, source_index, target_index, tag)` records |
+| `atom_changes`, `bond_changes` | Changes keyed by the identifiers in `reaction_smiles` |
+| `status`, `reason` | Search outcome and an explanation when applicable |
+| `metadata` | Change size, kept counts, optimality, stereo verdicts, checks, budgets, timings, settings, and dependency versions |
 
-Ties are broken in a fixed order that reads the same from either molecule: fewer kept
-atoms whose heavy-atom neighbours change, then the smaller group moving, then a canonical
-order. The mapping of B to A is therefore the reverse of the mapping of A to B.
+The mapping tag is `seed` or `refined`, indicating how an atom entered the search; it is
+not a confidence score. `result.reverse()` swaps the two sides and renumbers the result
+without searching again. `result.to_dict()` returns the public fields as plain Python
+data for serialization.
 
-## Options
+Check `status` before using a result in an automated workflow:
+
+| Status | Meaning |
+|---|---|
+| `complete` | The configured search finished; global optimality is not guaranteed |
+| `timed_out` | A work budget, size ceiling, or time limit stopped the search; the result is the best found so far |
+| `no_common_vertices` | No atom can be mapped under the constraints; the mapping is empty |
+| `unsupported_input` | A valid input cannot be represented faithfully; `reason` explains why, and no mapped SMILES is returned |
 
 ```python
-map_atoms(source, target, *, element_change=True, objective="change",
-          allow_stereo_inversion=False, settings=None)
+from atommapper import InvalidInput, Settings, map_atoms
+
+try:
+    result = map_atoms("CCO", "CC=O", settings=Settings(time_limit_s=10.0))
+except InvalidInput as error:
+    print(f"Invalid molecule: {error}")
+else:
+    if result.status == "unsupported_input":
+        print(result.reason)
+    elif result.status == "timed_out":
+        print("Partial result:", result.metadata["budget"]["stopped_by"])
+    else:
+        print(result.reaction_smiles)
 ```
 
-- `element_change=True` (LOMAP's default) lets a kept atom change element, which counts as
-  one change; a pyridine and a benzene then keep all six ring atoms. With
-  `element_change=False` (`--fixed-elements`), every kept atom keeps its element, and the
-  same pair keeps nothing.
-- `allow_stereo_inversion=True` (`--allow-stereo-inversion`) lifts the rule against an
-  inverted stereo element. A kept centre or double bond may then be inverted, and each
-  inversion counts one change. Two molecules that share a core whose centres are mirrored
-  can then keep it: in
-  `CNC(=O)CN1C[C@]2(C(=O)N(c3cncc4ccccc34)C[C@H]2COC)c2cc(Cl)ccc2C1=O` to
-  `C[C@H]1CN(c2cncc3ccccc23)C(=O)[C@@]12CN(CCN1C[C@H]3C[C@@H]1CO3)C(=O)c1ccc(Cl)cc12`,
-  15 atoms are kept at a size of 90 without the option and 30 at a size of 28 with it.
-- `objective="bonds"` (`--objective bonds`) selects LOMAP's objective (above).
-- `settings` takes a `Settings` with the search budgets and limits (below).
+Invalid or empty molecules raise `InvalidInput` (a `ValueError` subclass). An unknown
+objective raises `ValueError`; invalid `Settings` values raise `TypeError` or `ValueError`.
+A charged hydrogen attached to a heavy atom is an example of an unsupported input.
 
-## The result
+The CLI exits with **0** for a completed search (including an empty mapping), **1** for
+invalid or unsupported input, **2** for argument-parsing errors, and **3** for a search
+stopped by a limit. A partial result is still printed; `--accept-partial` changes its exit
+code to 0, but does not change the result's status.
 
-`map_atoms` returns a `MappingResult` with these fields:
+## Mapping constraints
 
-- `reaction_smiles`: the source and target as one `source>>target` string. Kept atoms are
-  numbered first, in the source's canonical order, then atoms only in the source, then
-  atoms only in the target. Hydrogens stay implicit.
-- `mapping`: one `MappedAtom` per kept atom. Its tag is `seed` for an atom of a starting
-  fragment and `refined` for one added by the search.
-- `atom_changes` and `bond_changes`: what differs, by identifier.
-- `status`: one of the following.
-  - `complete`: every search finished.
-  - `timed_out`: a budget or the clock stopped a search, and the result is the best found.
-    `reason` says so, and `metadata["budget"]["stopped_by"]` names the limits.
-  - `no_common_vertices`: no atom can be kept under the rules.
-  - `unsupported_input`: the input holds something the tool does not handle, such as a
-    charged hydrogen bonded to a heavy atom.
-- `metadata`, a dict that includes:
-  - `size`: the size of the change;
-  - `cost`: the objective as one number;
-  - `kept`: atoms and bonds kept;
-  - `optimality`: see Limits;
-  - `ambiguity`: how many mappings tie;
-  - `stereo`: one verdict per stereo element, such as `retained`, `inverted`, `lost`,
-    `gained` or `undetermined`;
-  - `checks`: checks the tool ran on its own output, such as whether applying the changes
-    to the source gives the target;
-  - `budget`, `fragment_search` and `timings`: how the search went.
+- **Connected core.** Mapped atoms joined by retained bonds form one connected component.
+  Atoms isolated on both sides, such as counterions, are exempt.
+- **Ring membership.** Ring atoms map only to ring atoms; chain atoms only to chain atoms.
+- **Complete rings.** Every retained ring atom and ring bond must lie on a cycle in the
+  shared core. A benzene ring can map to one ring of naphthalene, but cyclohexane and
+  cyclopentane cannot share a partial ring.
+- **Bonds between mapped atoms.** Two mapped atoms bonded on either side must also be
+  bonded on the other side. Bond orders may change, even with fixed elements.
+- **Stereochemistry.** By default, a mapping cannot invert a retained tetrahedral centre
+  or double bond. The check uses the mapped neighbours, including attached hydrogens,
+  rather than simply comparing R/S labels. Stereo can still be gained or lost and is
+  reported in `metadata["stereo"]`.
+- **Hydrogens.** Ordinary attached hydrogens are implicit; changes in their count are
+  reported as atom attributes. This is intended for heavy-atom mapping, not a complete
+  all-atom correspondence.
 
-`result.reverse()` swaps the two sides without searching again, and `result.to_dict()`
-gives the whole result as plain data (`--json` on the command line).
+Ties favor fewer mapped atoms with changed heavy-atom neighbours, then the smaller
+moving group, then canonical order. These choices are designed to give consistent
+mappings when the inputs are reordered or reversed. All benchmark pairs agreed under
+reversal up to symmetry; timeouts and search caps can affect that behavior.
 
-Invalid SMILES raise `InvalidInput`.
+## Search limits
 
-## Budgets and the time limit
+```python
+from atommapper import Settings, map_atoms
 
-`Settings` holds the limits of a call:
+result = map_atoms(
+    "Cc1ccc(F)cc1", "Cc1cccc(F)c1",
+    settings=Settings(time_limit_s=30.0, node_budget=2_000_000),
+)
+```
 
-- **Work budgets.** `fragment_steps` (20 million) bounds the fragment search and
-  `node_budget` (1 million) the branch-and-bound. A search stopped by a work budget stops
-  at the same point on every machine, so its result is reproducible.
-- **Coarse-pass cap.** With elements free, the fragment search runs on element labels and
-  then on ring and chain labels alone. That second, coarse pass takes most of the time on
-  polycyclic pairs and seldom changes the result, so it stops after
-  `coarse_fragment_steps` (100,000) and the fragments found by then seed the search.
-  Reaching this cap is part of the method: the status stays `complete`, and
-  `metadata["fragment_search"]["coarse_capped"]` says it happened.
-- **Time limit.** `time_limit_s` (60 s) bounds the whole call from its start and is met to
-  within tens of milliseconds; parsing and stereo perception are not cut short. A result
-  the clock stopped reports `time` among its stop reasons, and it depends on machine speed
-  and load.
-- **Pair ceiling.** `fragment_bond_pairs` (20,000) caps how many compatible bond pairs the
-  fragment search will consider. Very long chains of one element exceed it and come back
-  unsearched; raise it to compare them.
+| Setting | Default | Purpose | CLI option |
+|---|---:|---|---|
+| `fragment_steps` | 20,000,000 | Total fragment-search work budget | `--steps` |
+| `node_budget` | 1,000,000 | Total branch-and-bound work budget | `--nodes` |
+| `time_limit_s` | 60.0 | Wall-clock limit measured from the start of the call | `--timeout` |
+| `fragment_bond_pairs` | 20,000 | Ceiling on compatible bond pairs in the fragment search | `--pairs` |
+| `coarse_fragment_steps` | 100,000 | Work cap for the element-independent fragment pass | Python only |
 
-The command line takes `--steps`, `--nodes`, `--timeout` and `--pairs`, and exits with
-status 3 when a limit stopped the search (0 with `--accept-partial`).
+Work budgets make the stopping point reproducible, provided the wall-clock limit does
+not intervene. Clock-limited results depend on machine speed and load. The time limit is
+not a hard process deadline: parsing, stereo perception, and result assembly are not
+interrupted. The optional global check described below has its own additional budget.
 
-On 3,000 drug-like pairs, one core per call, a call takes 17 ms at the median and 55 ms on
-average with elements free (8 s for the slowest pair), and 9 ms and 17 ms with elements
-fixed.
+Reaching the coarse-pass cap is part of the normal method and does not set `timed_out`;
+inspect `metadata["fragment_search"]["coarse_capped"]`. The bond-pair ceiling protects
+against large search graphs; increase it if `stopped_by` includes `pairs`.
 
-## Limits
+`Settings` also exposes `max_fragments`, `k_seeds`, and `max_alternatives` for advanced
+control of candidate storage and refinement. Restricting seeds or truncating candidates
+can affect mapping quality and consistency under input reversal.
 
-The search starts from the largest connected fragments the two molecules share and trims
-each to the rules. It keeps the largest pieces each trim leaves and grows a mapping around
-each piece by branch-and-bound. The pieces themselves are kept whole, so the result is
-optimal given its seeds, and `metadata["optimality"]` says `optimal_given_seed`.
+## Optimality and limitations
 
-The seeds can miss the optimum, and by much. When the largest common fragments break a rule,
-the trim cuts them into pieces, and the best mapping may contain none of them. For
-example, `NC1Cc2ccccc2CCC1=O` to `N[C@H]1CCc2ccccc2C[C@@H]1O` with elements fixed gets a
-size of 21 where 8 is possible.
+**A completed search is not a proof of the globally best mapping.** AtomMapper starts
+from shared connected fragments, trims them to the constraints, and grows mappings around
+the remaining pieces using branch-and-bound. Each starting piece is held fixed, so the
+usual result is `metadata["optimality"] == "optimal_given_seed"`.
 
-An inverted stereo element is the common case, and it is seeded for. When a trim drops
-atoms for one, the search also starts from each dropped atom paired with every target atom
-of its kind. With `allow_stereo_inversion`, the search starts from these seeds and from
-every seed it would use with inversions forbidden, so allowing them never makes the change
-larger, unless a budget or the time limit stops the search.
+The seeds can miss a better mapping, sometimes by a large margin. For example,
+`NC1Cc2ccccc2CCC1=O` to `N[C@H]1CCc2ccccc2C[C@@H]1O` with fixed elements gives a change
+size of 21, although a size of 8 is possible. Extra seeds address common stereo-related
+failures, but do not make the search globally exact. Increasing budgets alone may not
+fix a poor choice of seeds.
 
-`Settings(global_budget_s=...)` adds an exact check after the search: the unconstrained
-graph edit distance. When it finishes and the result meets it, `optimality` says `optimal`.
-The bound ignores the rules, so it proves optimality only when they cost nothing.
-
-This is not OpenFE's LOMAP. It maps no hydrogens and computes no similarity score. Its
-stereo rule is stricter. It applies the rules during its search, where LOMAP trims one
-maximum common substructure after choosing it.
-
-## Compared with LOMAP
-
-On the free energy networks of the protein-ligand benchmark and on AstraZeneca matched
-pairs, AtomMapper finds the same mapping as OpenFE's LOMAP, up to symmetry, for 95-98% of
-the pairs where LOMAP's search finished. Mapping a whole set of pairs takes it 17-102 times
-less time, because it has none of LOMAP's slow tail: half of LOMAP's time goes to its
-slowest 0.8-2.3% of pairs, each taking 14 s or more against its 20 s timeout. On every pair
-of the benchmark AtomMapper gave the same mapping, up to symmetry, whichever molecule came
-first; LOMAP did not on 0.4-1.2% of them.
-[benchmarks/README.md](https://github.com/craabreu/atommapper/blob/main/benchmarks/README.md)
-has the method, the numbers and where the two disagree.
-
-## How it works
-
-1. **Fragments.** A Rust engine (Koch's algorithm on the bond-pair compatibility graph)
-   lists the largest connected common fragments, and those whose largest piece keeps the
-   most bonds once trimmed to complete rings. With elements free, it searches on element
-   labels and then, up to a step cap, on ring and chain labels alone.
-2. **Seeds.** Each fragment is trimmed to the rules, and the largest pieces left become
-   seeds, deduplicated by symmetry.
-3. **Search.** From each seed, a branch-and-bound adds atoms only across kept bonds, so the
-   kept part stays one piece. A lower bound that reads how that piece can still grow cuts
-   most branches, and every recorded mapping is checked against the rules.
-4. **Choice.** The cheapest mapping over all seeds wins, with ties broken as above.
+`Settings(global_budget_s=...)` enables an optional exact lower-bound calculation after
+the search, using unconstrained graph edit distance. If it finishes and matches the
+mapping cost, `optimality` becomes `optimal`. Otherwise, it does not establish optimality.
+This check can be expensive and is intended for small molecules and validation.
 
 ## Development
 
+Building from source requires Python 3.11+ and Rust:
+
 ```bash
-make format   # ruff and cargo fmt
-make check    # ruff, ty, cargo fmt and clippy, the Rust tests, a rebuild, pytest
+git clone https://github.com/craabreu/atommapper.git
+cd atommapper
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+python -m pip install -e ".[test,dev]"
+
+make check   # lint, types, Rust checks and tests, rebuild, Python tests
+make format  # format Python and Rust sources
 ```
 
-AtomMapper was extracted from moldelta, a molecule-diff tool, where this mapping was
-`lomap_map`.
+The `make` commands require Make. To run only the Python tests after installation, use
+`python -m pytest -q`. Benchmark dependencies and reproduction commands are documented
+[separately](https://github.com/craabreu/atommapper/blob/main/benchmarks/README.md#reproducing-the-benchmarks).
+
+Please report bugs with a minimal pair of input molecules, the mapping options, and
+`result.metadata["versions"]` on the
+[issue tracker](https://github.com/craabreu/atommapper/issues).
 
 ## License
 
-MIT; see [LICENSE](LICENSE).
+AtomMapper is released under the [MIT license](https://github.com/craabreu/atommapper/blob/main/LICENSE).

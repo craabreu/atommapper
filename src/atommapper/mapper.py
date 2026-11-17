@@ -637,22 +637,58 @@ def map_atoms(
     allow_stereo_inversion: bool = False,
     settings: Settings | None = None,
 ) -> MappingResult:
-    """Map two molecules under LOMAP's rules (module docstring).
+    """Find an atom correspondence between two molecules with a connected shared core.
 
-    ``element_change`` (LOMAP's default) lets a kept atom change element; without it,
-    atoms keep their element. ``allow_stereo_inversion`` lifts the rule against an inverted
-    stereo element: a kept tetrahedral centre or double bond may be inverted, and each
-    inverted element counts one change (``metadata["size"]`` and ``metadata["cost"]`` include it;
-    the inversions are listed in ``metadata["stereo"]`` and among the changes,
-    ``atom_changes`` for a centre and ``bond_changes`` for a double bond).
-    ``objective`` is ``"change"`` (the smallest change) or ``"bonds"`` (LOMAP's, the most
-    bonds kept). ``settings`` supplies the budgets and limits (``Settings``).
+    Parameters
+    ----------
+    source, target : str or rdkit.Chem.Mol
+        SMILES strings or RDKit molecules. No coordinates are required. Molecules are
+        copied and sanitized; existing atom-map numbers are ignored. Ordinary attached
+        hydrogens are made implicit. Returned atom indices refer to the original input
+        molecules, or to SMILES parsed with explicit hydrogens retained.
+    element_change : bool, default True
+        Allow mapped atoms to change element. If False, elements must match. Bond orders
+        may change in either mode; ring membership and complete rings are always required.
+    objective : {"change", "bonds"}, default "change"
+        Minimize change size, or maximize kept bonds, then kept atoms, then minimize
+        change size. Each inserted/deleted atom or bond, element change, and bond-order
+        change counts as one. Other attribute changes are reported but not charged.
+    allow_stereo_inversion : bool, default False
+        Allow a mapped tetrahedral centre or double bond to invert and count each
+        inversion as one change. Inversions appear in the change lists and stereo metadata.
+    settings : Settings or None, default None
+        Search budgets and limits. None uses Settings(), including a 60-second time limit.
 
-    ``metadata["kept"]`` counts the kept atoms and bonds and ``metadata["size"]`` is the
-    size of the change under either objective; ``metadata["cost"]`` is the objective as
-    one number (the size for ``"change"``, ``cost.lomap_weights`` for ``"bonds"``).
-    Raises ``ValueError`` for an unknown objective and ``InvalidInput`` for inputs that
-    cannot be parsed.
+    Returns
+    -------
+    MappingResult
+        Mapped SMILES, input atom correspondence, changes, status, and metadata.
+        Inspect ``status``: ``timed_out`` returns a partial result after a work or time
+        limit; ``unsupported_input`` returns an explanation without mapped SMILES;
+        ``no_common_vertices`` returns an empty mapping. A ``complete`` result is usually
+        optimal only given the search seeds, not globally optimal.
+
+    Raises
+    ------
+    InvalidInput
+        An input has the wrong type, is empty, or cannot be parsed or sanitized.
+    ValueError
+        The objective is not "change" or "bonds".
+
+    Notes
+    -----
+    ``metadata["size"]`` is the change size under either objective, not the number of
+    entries in the change lists. ``metadata["cost"]`` is the objective's scalar cost;
+    it equals size for "change". ``metadata["kept"]`` counts mapped atoms and kept bonds.
+    See the module docstring for the constraints and search method.
+
+    Examples
+    --------
+    >>> result = map_atoms("CCO", "CC=O")
+    >>> result.status
+    'complete'
+    >>> result.metadata["size"]
+    1
     """
     if objective not in OBJECTIVES:
         raise ValueError(f"unknown objective {objective!r}; valid: {', '.join(sorted(OBJECTIVES))}")

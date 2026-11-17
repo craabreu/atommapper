@@ -357,11 +357,15 @@ def _draw(
 def draw_svg(
     result: "MappingResult", *, width: int = 400, height: int = 300, numbers: bool = False
 ) -> str:
-    """The source and target side by side as SVG text, each panel ``width`` by ``height``
-    pixels, over a legend ``LEGEND_HEIGHT`` pixels high; ``numbers`` labels the kept atoms
-    with their identifiers.
+    """Render a mapped pair as SVG text with aligned structures and highlighted changes.
 
-    Raises ``ValueError`` for a result with nothing to draw (``unsupported_input``)."""
+    ``width`` and ``height`` are the dimensions of each molecule panel in pixels.
+    The full image is twice ``width``, with a legend added below the panels.
+    ``numbers=True`` labels mapped atoms with their atom-map identifiers, not input
+    indices. Use ``save_image`` to write a file or display ``result`` in a notebook.
+
+    Raises ValueError if the result has no mapped SMILES (for example, unsupported input).
+    """
     drawer = rdMolDraw2D.MolDraw2DSVG(2 * width, height + LEGEND_HEIGHT, width, height)
     return _draw(drawer, result, width, height, numbers).GetDrawingText()
 
@@ -369,7 +373,12 @@ def draw_svg(
 def draw_png(
     result: "MappingResult", *, width: int = 400, height: int = 300, numbers: bool = False
 ) -> bytes:
-    """As ``draw_svg``, as PNG bytes."""
+    """Render a mapped pair as PNG bytes, using the same layout as ``draw_svg``.
+
+    ``width`` and ``height`` are per-panel pixel dimensions; the legend adds height.
+    ``numbers=True`` labels mapped atoms with their atom-map identifiers.
+    Raises ValueError if the result has no mapped SMILES.
+    """
     drawer = rdMolDraw2D.MolDraw2DCairo(2 * width, height + LEGEND_HEIGHT, width, height)
     return _draw(drawer, result, width, height, numbers).GetDrawingText()
 
@@ -382,9 +391,16 @@ def save_image(
     height: int = 300,
     numbers: bool = False,
 ) -> None:
-    """Write the drawing to ``path``, as SVG or PNG by its suffix (``.svg`` or ``.png``).
+    """Save a mapped-pair drawing, choosing SVG or PNG from the path's suffix.
 
-    Raises ``ValueError`` for another suffix or a result with nothing to draw."""
+    ``path`` accepts a string or pathlib.Path ending in .svg or .png (case-insensitive).
+    An existing file is overwritten; the parent directory must already exist.
+    ``width`` and ``height`` are per-panel pixel dimensions. ``numbers=True`` labels
+    mapped atoms with their atom-map identifiers.
+
+    Raises ValueError for another suffix or a result with no mapped SMILES. File-system
+    errors propagate as OSError subclasses.
+    """
     path = Path(path)
     suffix = path.suffix.lower()
     if suffix == ".svg":
