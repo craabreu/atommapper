@@ -5,10 +5,12 @@ where the source has them, so a kept atom sits at the same place in each panel. 
 leaves is marked on the source and what arrives on the target; kept atoms and bonds that
 change (element, charge, order, stereo) are marked on both, a changed stereo element with
 its label on each side. A changed hydrogen count is not marked: a bond that forms or
-breaks at the atom already shows it. The marks are light tints under the structure, in
-colors of the Okabe-Ito palette, which stay distinct under the common forms of color
-blindness. A legend under the panels counts, for atoms and for bonds apart, what is kept,
-removed, added and changed.
+breaks at the atom already shows it. The marks are light tints under the structure, of
+three colors of the Okabe-Ito palette chosen to stay apart under deuteranopia, protanopia
+and tritanopia: their OKLab distance (times 100) is at least 14 between any two under each,
+simulated as Machado, Oliveira and Fernandes (2009) do at full severity, and at least 18
+with full color vision. A legend under the panels counts, for atoms and for bonds apart,
+what is kept, removed, added and changed.
 """
 
 from pathlib import Path
@@ -32,18 +34,22 @@ def _rgb(code: str) -> Color:
     return (red, green, blue)
 
 
-def _tint(color: Color) -> Color:
-    """``color`` mixed with white, light enough to sit under bonds and labels."""
-    red, green, blue = (c + (1 - c) * 0.55 for c in color)
+def _tint(color: Color, white: float) -> Color:
+    """``color`` mixed with a fraction ``white`` of white, light enough to sit under bonds
+    and labels: the legend's dark gray text (``_INK``) keeps a WCAG contrast of at least 5:1
+    on each tint below, and black bonds more. RDKit's colored atom labels (red oxygen, blue
+    nitrogen) keep less, down to about 2:1 on the vermillion tint."""
+    red, green, blue = (c + (1 - c) * white for c in color)
     return (red, green, blue)
 
 
-REMOVED: Color = _tint(_rgb("D55E00"))
+REMOVED: Color = _tint(_rgb("D55E00"), 0.45)
 """Atoms and bonds only in the source (a tint of vermillion)."""
-ADDED: Color = _tint(_rgb("009E73"))
-"""Atoms and bonds only in the target (a tint of bluish green)."""
-CHANGED: Color = _tint(_rgb("0072B2"))
-"""Kept atoms and bonds that change (a tint of blue)."""
+ADDED: Color = _tint(_rgb("56B4E9"), 0.45)
+"""Atoms and bonds only in the target (a tint of sky blue)."""
+CHANGED: Color = _tint(_rgb("F0E442"), 0.25)
+"""Kept atoms and bonds that change (a tint of yellow, less white since yellow is light
+already)."""
 
 UNMARKED_ATTRIBUTES = frozenset({"hcount"})
 """Atom changes left unmarked: implied by the bonds that form or break."""

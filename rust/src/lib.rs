@@ -1,4 +1,4 @@
-//! atommapper's Stage 1 engine: step-budgeted connected common fragment search.
+//! AtomMapper's Stage 1 engine: step-budgeted connected common fragment search.
 //!
 //! The engine is plain Rust (`engine`); the Python binding below, built by maturin as
 //! `atommapper._mces`, only converts arguments and results.

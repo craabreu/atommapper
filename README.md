@@ -1,9 +1,20 @@
-# atommapper
+# AtomMapper
 
 Atom mapping of two molecules under the rules of LOMAP's mapping step. Given a source
 and a target, it finds which heavy atoms are the same atom, keeping one connected piece
 with whole rings and no inverted stereocentre, and it reports the result as a numbered
 reaction SMILES, an atom mapping, and the atoms and bonds that change.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/craabreu/atommapper/main/docs/images/example.png" width="820"
+       alt="Two related ligands side by side: kept atoms aligned, a hydroxyl removed, a triazolylmethyl group added, three methyl carbons become fluorines, and a new stereocentre labelled R">
+</p>
+
+Two ligands of the EG5 series of the protein-ligand benchmark. Kept atoms sit at the same
+place in both panels; the hydroxyl leaves, a triazolylmethyl group arrives, the three
+methyl carbons of the *tert*-butyl become the fluorines of a trifluoromethyl, and a ring
+carbon becomes a stereocentre. The drawing comes from
+`atommapper SOURCE TARGET --draw example.png` (see Drawings).
 
 ## Install
 
@@ -60,9 +71,9 @@ counts what is kept, removed, added and changed, with atoms and bonds in separat
 - **Aligned.** Both panels share one scale and one origin, and the target is drawn with its
   kept atoms where the source has them, so a kept atom is at the same place in each panel.
 - **Marked.** Light tints under the structure show what leaves (vermillion, on the source),
-  what arrives (green, on the target), and which kept atoms and bonds change (blue, on
-  both): element, charge, bond order or stereo. The colors stay distinct under the common
-  forms of color blindness.
+  what arrives (sky blue, on the target), and which kept atoms and bonds change (yellow, on
+  both): element, charge, bond order or stereo. The three colors stay apart under
+  deuteranopia, protanopia and tritanopia, and the legend names each one.
 - **Stereo.** An inverted centre carries its label on each side, (R) and (S), and an
   inverted double bond (E) and (Z). Every double bond is drawn with the geometry the
   molecule has, even when that moves kept atoms away from the source's positions.
@@ -216,6 +227,18 @@ This is not OpenFE's LOMAP. It maps no hydrogens and computes no similarity scor
 stereo rule is stricter. It applies the rules during its search, where LOMAP trims one
 maximum common substructure after choosing it.
 
+## Compared with LOMAP
+
+On the free energy networks of the protein-ligand benchmark and on AstraZeneca matched
+pairs, AtomMapper finds the same mapping as OpenFE's LOMAP, up to symmetry, for 95-98% of
+the pairs where LOMAP's search finished. Mapping a whole set of pairs takes it 17-102 times
+less time, because it has none of LOMAP's slow tail: half of LOMAP's time goes to its
+slowest 0.8-2.3% of pairs, each taking 14 s or more against its 20 s timeout. On every pair
+of the benchmark AtomMapper gave the same mapping, up to symmetry, whichever molecule came
+first; LOMAP did not on 0.4-1.2% of them.
+[benchmarks/README.md](https://github.com/craabreu/atommapper/blob/main/benchmarks/README.md)
+has the method, the numbers and where the two disagree.
+
 ## How it works
 
 1. **Fragments.** A Rust engine (Koch's algorithm on the bond-pair compatibility graph)
@@ -236,7 +259,7 @@ make format   # ruff and cargo fmt
 make check    # ruff, ty, cargo fmt and clippy, the Rust tests, a rebuild, pytest
 ```
 
-atommapper was extracted from moldelta, a molecule-diff tool, where this mapping was
+AtomMapper was extracted from moldelta, a molecule-diff tool, where this mapping was
 `lomap_map`.
 
 ## License
