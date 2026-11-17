@@ -84,7 +84,7 @@ def test_work_budget_by_default_with_a_long_clock_as_safety_net():
     assert settings.node_budget > 0
     assert settings.time_limit_s >= 60.0
     assert not hasattr(settings, "refine_budget_s")
-    assert not hasattr(settings, "stage1_timeout_s")
+    assert not hasattr(settings, "fragment_timeout_s")
 
 
 def test_alignment_graph_takes_its_coloring_from_the_caller():

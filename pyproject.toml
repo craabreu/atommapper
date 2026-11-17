@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "atommapper"
 version = "0.1.0"
-description = "Atom mapping of two molecules under LOMAP's rules, as a numbered reaction SMILES"
+description = "Fast atom mapping for related molecules, with mapped SMILES and structured atom and bond changes"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -13,6 +13,8 @@ requires-python = ">=3.11"
 dependencies = ["rdkit>=2025.3", "networkx>=3.2", "scipy>=1.11"]
 
 [project.urls]
+Homepage = "https://github.com/craabreu/atommapper"
+Documentation = "https://github.com/craabreu/atommapper#readme"
 Repository = "https://github.com/craabreu/atommapper"
 Issues = "https://github.com/craabreu/atommapper/issues"
 
@@ -24,7 +26,7 @@ dev = ["ruff>=0.15", "ty>=0.0.90", "pre-commit>=4"]
 atommapper = "atommapper.cli:main"
 
 [tool.maturin]
-# Mixed project: Python under src/, the Stage 1 engine in rust/, built as
+# Mixed project: Python under src/, the fragment search engine in rust/, built as
 # atommapper._mces. Building from source needs a Rust toolchain.
 manifest-path = "rust/Cargo.toml"
 python-source = "src"
@@ -39,5 +41,7 @@ target-version = "py311"
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# The docstring examples in src/ run as doctests with the test suite.
+testpaths = ["tests", "src"]
+addopts = ["--doctest-modules"]
 pythonpath = ["."]

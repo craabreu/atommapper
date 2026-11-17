@@ -1,4 +1,4 @@
-"""Stage 2: anchored branch-and-bound over connected correspondences grown from anchors."""
+"""Refinement: anchored branch-and-bound over connected correspondences grown from anchors."""
 
 import time
 from collections.abc import Callable, Collection, Hashable, Mapping

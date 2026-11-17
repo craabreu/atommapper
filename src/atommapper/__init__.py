@@ -1,4 +1,8 @@
-"""Atom mapping of two molecules under LOMAP's rules."""
+"""Fast atom mapping for related molecules with connected cores and complete rings.
+
+Use ``map_atoms`` with SMILES strings or RDKit molecules to obtain a ``MappingResult``.
+Configure search limits with ``Settings`` and save pair drawings with ``save_image``.
+"""
 
 from .drawing import draw_png, draw_svg, save_image
 from .errors import InvalidInput, UnsupportedInput
