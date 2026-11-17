@@ -1,4 +1,4 @@
-"""atommapper against OpenFE's LOMAP: time and result on the same pairs, side by side.
+"""AtomMapper against OpenFE's LOMAP: time and result on the same pairs, side by side.
 
 Usage: python benchmarks/compare_lomap.py run PAIRS.csv OUT.jsonl [--workers N] [--limit N]
        python benchmarks/compare_lomap.py summary OUT.jsonl [OUT.jsonl ...]
@@ -15,8 +15,8 @@ Each pair is mapped, in the same worker one after the other, by:
 
 each with elements free (LOMAP's ``element_change=True``) and fixed. Times are wall clock
 for the whole call from the SMILES strings. Every mapping is then judged the same way, by
-atommapper's own code: the atoms and bonds it keeps, the size of the change, and which of
-LOMAP's rules (as atommapper states them) it breaks.
+AtomMapper's own code: the atoms and bonds it keeps, the size of the change, and which of
+LOMAP's rules (as AtomMapper states them) it breaks.
 """
 
 import argparse
@@ -47,7 +47,7 @@ MODES = {"free": True, "fixed": False}
 
 def canonical(smiles: str) -> str:
     """The same string for both tools: canonical SMILES, hydrogens implicit, so atom indices
-    agree between LOMAP's molecule and atommapper's input."""
+    agree between LOMAP's molecule and AtomMapper's input."""
     return Chem.MolToSmiles(Chem.MolFromSmiles(smiles))
 
 
@@ -93,7 +93,7 @@ def atommapper_map(
 
 
 def judged(source: str, target: str, pairs: list[tuple[int, int]], element_change: bool) -> dict:
-    """A mapping in atommapper's terms: what it keeps, the size of the change, the rules it
+    """A mapping in AtomMapper's terms: what it keeps, the size of the change, the rules it
     breaks and its key up to symmetry."""
     colors = coloring("ring" if element_change else "element-ring")
     s = build_view(parse(source, "source"), "source", colors)
@@ -205,7 +205,7 @@ def summary(paths: list[str]) -> str:
             f"MCS search reached its 20 s timeout on {_share(timeouts, n)} pairs.",
             "",
         ]
-        lines += ["| | LOMAP | atommapper (change) | atommapper (bonds) |", "|---|---|---|---|"]
+        lines += ["| | LOMAP | AtomMapper (change) | AtomMapper (bonds) |", "|---|---|---|---|"]
         for label, fn in (
             ("median time", lambda xs: _seconds(statistics.median(xs))),
             ("mean time", lambda xs: _seconds(statistics.fmean(xs))),
@@ -231,11 +231,11 @@ def summary(paths: list[str]) -> str:
 
         same = sum(r[f"bonds_{mode}"]["key"] == r[f"lomap_{mode}"]["key"] for r in ok)
         lines += [
-            f"- Bonds kept (LOMAP's objective), atommapper (bonds) against LOMAP: "
+            f"- Bonds kept (LOMAP's objective), AtomMapper (bonds) against LOMAP: "
             f"{_versus(ok, mode, 'bonds', 'bonds', 'more')}.",
-            f"- Size of the change (atommapper's objective), atommapper (change) against "
+            f"- Size of the change (AtomMapper's objective), AtomMapper (change) against "
             f"LOMAP: {_versus(ok, mode, 'change', 'size', 'fewer')}.",
-            f"- Same mapping as LOMAP, up to symmetry, for atommapper (bonds): "
+            f"- Same mapping as LOMAP, up to symmetry, for AtomMapper (bonds): "
             f"{_share(same, len(ok))}.",
             "",
         ]

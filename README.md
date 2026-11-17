@@ -1,4 +1,4 @@
-# atommapper
+# AtomMapper
 
 Atom mapping of two molecules under the rules of LOMAP's mapping step. Given a source
 and a target, it finds which heavy atoms are the same atom, keeping one connected piece
@@ -230,7 +230,7 @@ maximum common substructure after choosing it.
 ## Compared with LOMAP
 
 On the free energy networks of the protein-ligand benchmark and on AstraZeneca matched
-pairs, atommapper finds the same mapping as OpenFE's LOMAP for 95-98% of the pairs, up to
+pairs, AtomMapper finds the same mapping as OpenFE's LOMAP for 95-98% of the pairs, up to
 symmetry. It is 1.1-2.4 times faster on a typical pair and has none of LOMAP's slow tail,
 which runs into its 20 s timeout on 1-3% of the pairs.
 [benchmarks/README.md](https://github.com/craabreu/atommapper/blob/main/benchmarks/README.md)
@@ -256,7 +256,7 @@ make format   # ruff and cargo fmt
 make check    # ruff, ty, cargo fmt and clippy, the Rust tests, a rebuild, pytest
 ```
 
-atommapper was extracted from moldelta, a molecule-diff tool, where this mapping was
+AtomMapper was extracted from moldelta, a molecule-diff tool, where this mapping was
 `lomap_map`.
 
 ## License

@@ -1,4 +1,4 @@
-"""The time per pair of LOMAP and atommapper, as the fraction of pairs that take at least a
+"""The time per pair of LOMAP and AtomMapper, as the fraction of pairs that take at least a
 given time, on log-log axes, so that the slow tail shows.
 
 Usage: python benchmarks/plot_timing.py FEP.jsonl AZ.jsonl OUT_STEM
@@ -22,8 +22,8 @@ from publication_plotting import (
 LOMAP_TIMEOUT = 20.0
 SERIES = (
     # (record key, legend, color, line style)
-    ("change_free", "atommapper, elements free", "#0072B2", "-"),
-    ("change_fixed", "atommapper, elements fixed", "#0072B2", "--"),
+    ("change_free", "AtomMapper, elements free", "#0072B2", "-"),
+    ("change_fixed", "AtomMapper, elements fixed", "#0072B2", "--"),
     ("lomap_free", "LOMAP, elements free", "#D55E00", "-"),
     ("lomap_fixed", "LOMAP, elements fixed", "#D55E00", "--"),
 )
@@ -42,7 +42,7 @@ def at_least(times: list[float]) -> tuple[np.ndarray, np.ndarray]:
 
 def main() -> None:
     fep_path, az_path, stem = sys.argv[1:4]
-    use_publication_style(preset=None, figsize=(7.0, 2.7), box=False)
+    use_publication_style(preset=None, figsize=(7.0, 3.0), box=False)
     fig, axes = plt.subplots(1, 2, sharey=True)
     datasets = (("FEP networks", records(fep_path)), ("AZ matched pairs", records(az_path)))
     for ax, (title, rows) in zip(axes, datasets, strict=True):
@@ -69,7 +69,9 @@ def main() -> None:
             title=f"{title} ({len(rows):,} pairs)",
         )
     axes[0].set_ylabel("Fraction of pairs taking at least this long")
-    axes[1].legend(loc="lower left", frameon=False)
+    # Outside the axes, in one row under both panels, so that it covers no curve.
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="outside lower center", ncols=4, frameon=False)
     label_panels(axes)
     save_publication_figure(fig, stem, formats=("png",), png_dpi=200, close=True)
 
