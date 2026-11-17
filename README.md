@@ -1,9 +1,20 @@
-# atommapper
+# AtomMapper
 
 Atom mapping of two molecules under the rules of LOMAP's mapping step. Given a source
 and a target, it finds which heavy atoms are the same atom, keeping one connected piece
 with whole rings and no inverted stereocentre, and it reports the result as a numbered
 reaction SMILES, an atom mapping, and the atoms and bonds that change.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/craabreu/atommapper/main/docs/images/example.png" width="820"
+       alt="Two related ligands side by side: kept atoms aligned, a hydroxyl removed, a triazolylmethyl group added, three methyl carbons become fluorines, and a new stereocentre labelled R">
+</p>
+
+Two ligands of the EG5 series of the protein-ligand benchmark. Kept atoms sit at the same
+place in both panels; the hydroxyl leaves, a triazolylmethyl group arrives, the three
+methyl carbons of the *tert*-butyl become the fluorines of a trifluoromethyl, and a ring
+carbon becomes a stereocentre. The drawing comes from
+`atommapper SOURCE TARGET --draw example.png` (see Drawings).
 
 ## Install
 
@@ -49,6 +60,42 @@ result.metadata["size"]  # 4: one atom and one bond out, one atom and one bond i
 
 `source_index` and `target_index` are atom indices of the inputs as given, which can be
 SMILES strings or RDKit molecules.
+
+## Drawings
+
+`--draw FILE` also draws the pair, as SVG or PNG by the file's suffix:
+
+```bash
+atommapper "Cc1ccc(F)cc1" "Cc1cccc(F)c1" --draw walk.png --size 400x300
+```
+
+The source and the target sit side by side, each panel `--size` pixels, over a legend that
+counts what is kept, removed, added and changed, with atoms and bonds in separate rows.
+
+- **Aligned.** Both panels share one scale and one origin, and the target is drawn with its
+  kept atoms where the source has them, so a kept atom is at the same place in each panel.
+- **Marked.** Light tints under the structure show what leaves (vermillion, on the source),
+  what arrives (sky blue, on the target), and which kept atoms and bonds change (yellow, on
+  both): element, charge, bond order or stereo. The three colors stay apart under
+  deuteranopia, protanopia and tritanopia, and the legend names each one.
+- **Stereo.** An inverted centre carries its label on each side, (R) and (S), and an
+  inverted double bond (E) and (Z). Every double bond is drawn with the geometry the
+  molecule has, even when that moves kept atoms away from the source's positions.
+- **Not marked.** A changed hydrogen count, since the bond that forms or breaks at the atom
+  already shows it.
+
+`--numbers` labels the kept atoms with their identifiers.
+
+In a notebook, a result displays as this drawing. In Python:
+
+```python
+from atommapper import draw_png, draw_svg, map_atoms, save_image
+
+result = map_atoms("Cc1ccc(F)cc1", "Cc1cccc(F)c1")
+svg = draw_svg(result, width=400, height=300)  # SVG text
+png = draw_png(result, numbers=True)           # PNG bytes, kept atoms numbered
+save_image(result, "walk.svg")                 # SVG or PNG by the suffix
+```
 
 ## The rules
 
@@ -174,7 +221,9 @@ size of 21 where 8 is possible.
 
 An inverted stereo element is the common case, and it is seeded for. When a trim drops
 atoms for one, the search also starts from each dropped atom paired with every target atom
-of its kind.
+of its kind. With `allow_stereo_inversion`, the search starts from these seeds and from
+every seed it would use with inversions forbidden, so allowing them never makes the change
+larger, unless a budget or the time limit stops the search.
 
 `Settings(global_budget_s=...)` adds an exact check after the search: the unconstrained
 graph edit distance. When it finishes and the result meets it, `optimality` says `optimal`.
@@ -183,6 +232,18 @@ The bound ignores the rules, so it proves optimality only when they cost nothing
 This is not OpenFE's LOMAP. It maps no hydrogens and computes no similarity score. Its
 stereo rule is stricter. It applies the rules during its search, where LOMAP trims one
 maximum common substructure after choosing it.
+
+## Compared with LOMAP
+
+On the free energy networks of the protein-ligand benchmark and on AstraZeneca matched
+pairs, AtomMapper finds the same mapping as OpenFE's LOMAP, up to symmetry, for 95-98% of
+the pairs where LOMAP's search finished. Mapping a whole set of pairs takes it 17-102 times
+less time, because it has none of LOMAP's slow tail: half of LOMAP's time goes to its
+slowest 0.8-2.3% of pairs, each taking 14 s or more against its 20 s timeout. On every pair
+of the benchmark AtomMapper gave the same mapping, up to symmetry, whichever molecule came
+first; LOMAP did not on 0.4-1.2% of them.
+[benchmarks/README.md](https://github.com/craabreu/atommapper/blob/main/benchmarks/README.md)
+has the method, the numbers and where the two disagree.
 
 ## How it works
 
@@ -204,7 +265,7 @@ make format   # ruff and cargo fmt
 make check    # ruff, ty, cargo fmt and clippy, the Rust tests, a rebuild, pytest
 ```
 
-atommapper was extracted from moldelta, a molecule-diff tool, where this mapping was
+AtomMapper was extracted from moldelta, a molecule-diff tool, where this mapping was
 `lomap_map`.
 
 ## License

@@ -1,7 +1,7 @@
 PYTHON ?= python
 RUFF ?= ruff
 TY ?= ty
-PATHS = src tests
+PATHS = src tests benchmarks
 
 .PHONY: check lint types test format rust build
 
