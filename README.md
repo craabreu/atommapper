@@ -217,7 +217,9 @@ size of 21 where 8 is possible.
 
 An inverted stereo element is the common case, and it is seeded for. When a trim drops
 atoms for one, the search also starts from each dropped atom paired with every target atom
-of its kind.
+of its kind. With `allow_stereo_inversion`, the search starts from these seeds and from
+every seed it would use with inversions forbidden, so allowing them never makes the change
+larger, unless a budget or the time limit stops the search.
 
 `Settings(global_budget_s=...)` adds an exact check after the search: the unconstrained
 graph edit distance. When it finishes and the result meets it, `optimality` says `optimal`.
