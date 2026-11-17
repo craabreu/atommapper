@@ -174,7 +174,7 @@ map_atoms(source, target, *, element_change=True, objective="change",
     `gained` or `undetermined`;
   - `checks`: checks the tool ran on its own output, such as whether applying the changes
     to the source gives the target;
-  - `budget`, `stage1` and `timings`: how the search went.
+  - `budget`, `fragment_search` and `timings`: how the search went.
 
 `result.reverse()` swaps the two sides without searching again, and `result.to_dict()`
 gives the whole result as plain data (`--json` on the command line).
@@ -185,14 +185,20 @@ Invalid SMILES raise `InvalidInput`.
 
 `Settings` holds the limits of a call:
 
-- **Work budgets.** `stage1_steps` (20 million) bounds the fragment search and
+- **Work budgets.** `fragment_steps` (20 million) bounds the fragment search and
   `node_budget` (1 million) the branch-and-bound. A search stopped by a work budget stops
   at the same point on every machine, so its result is reproducible.
+- **Coarse-pass cap.** With elements free, the fragment search runs on element labels and
+  then on ring and chain labels alone. That second, coarse pass takes most of the time on
+  polycyclic pairs and seldom changes the result, so it stops after
+  `coarse_fragment_steps` (100,000) and the fragments found by then seed the search.
+  Reaching this cap is part of the method: the status stays `complete`, and
+  `metadata["fragment_search"]["coarse_capped"]` says it happened.
 - **Time limit.** `time_limit_s` (60 s) bounds the whole call from its start and is met to
   within tens of milliseconds; parsing and stereo perception are not cut short. A result
   the clock stopped reports `time` among its stop reasons, and it depends on machine speed
   and load.
-- **Pair ceiling.** `stage1_bond_pairs` (20,000) caps how many compatible bond pairs the
+- **Pair ceiling.** `fragment_bond_pairs` (20,000) caps how many compatible bond pairs the
   fragment search will consider. Very long chains of one element exceed it and come back
   unsearched; raise it to compare them.
 
@@ -245,8 +251,8 @@ has the method, the numbers and where the two disagree.
 
 1. **Fragments.** A Rust engine (Koch's algorithm on the bond-pair compatibility graph)
    lists the largest connected common fragments, and those whose largest piece keeps the
-   most bonds once trimmed to complete rings. With elements free, it searches on ring and
-   chain labels and on element labels too.
+   most bonds once trimmed to complete rings. With elements free, it searches on element
+   labels and then, up to a step cap, on ring and chain labels alone.
 2. **Seeds.** Each fragment is trimmed to the rules, and the largest pieces left become
    seeds, deduplicated by symmetry.
 3. **Search.** From each seed, a branch-and-bound adds atoms only across kept bonds, so the

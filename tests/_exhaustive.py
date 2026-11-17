@@ -11,9 +11,9 @@ import time
 from atommapper.adapter import build_view, parse
 from atommapper.coloring import coloring
 from atommapper.cost import change_size, lomap_weights
+from atommapper.fragment_search import pair_isolated
 from atommapper.mapper import _Rules
 from atommapper.refine import refine
-from atommapper.stage1 import pair_isolated
 
 
 def lomap_optimum(

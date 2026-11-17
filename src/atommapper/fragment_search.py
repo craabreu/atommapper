@@ -1,4 +1,4 @@
-"""Stage 1 helpers: input to the engine and seeds that need no engine.
+"""Fragment search helpers: input to the engine and seeds that need no engine.
 
 The connected common fragments themselves come from the Rust engine (``rust/``, built as
 ``atommapper._mces``) within a budget of search steps, so a search stopped by its
@@ -17,7 +17,7 @@ from . import _mces
 
 ENGINE = f"atommapper._mces {_mces.__version__}"
 MAX_BOND_PAIRS = 20_000
-"""Default ceiling on compatible bond pairs (``Settings.stage1_bond_pairs``). The search
+"""Default ceiling on compatible bond pairs (``Settings.fragment_bond_pairs``). The search
 graph grows with its square; a pair above it is not searched and reports
 ``stopped_by == "pairs"``."""
 

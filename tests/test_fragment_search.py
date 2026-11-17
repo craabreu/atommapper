@@ -1,6 +1,6 @@
 from atommapper.adapter import build_view, parse
 from atommapper.coloring import coloring
-from atommapper.stage1 import pair_isolated
+from atommapper.fragment_search import pair_isolated
 
 
 def side(smiles: str):

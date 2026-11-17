@@ -1,4 +1,4 @@
-"""Type stub for the compiled Stage 1 engine (rust/src/lib.rs)."""
+"""Type stub for the compiled fragment search engine (rust/src/lib.rs)."""
 
 __version__: str
 

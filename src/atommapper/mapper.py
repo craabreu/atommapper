@@ -48,8 +48,11 @@ The search starts from connected common fragments (Koch's c-cliques, ``_mces.fra
 every largest one, and every one whose largest piece keeps the most bonds once trimmed to
 complete rings. It trims each to the rules, keeps the largest pieces each trim leaves, and
 refines each with the anchored branch-and-bound of ``refine``, recording only leaves that
-satisfy the rules. When a trim drops atoms for an inverted stereo element, the search is
-also seeded from each dropped atom paired with every target atom of the fragment of its
+satisfy the rules. With ``element_change`` the fragments are searched on element labels and
+then on ring and chain labels alone; that coarse pass stops at
+``Settings.coarse_fragment_steps``, and the fragments found by then seed the search. When
+a trim drops atoms for an inverted stereo element, the search is also
+seeded from each dropped atom paired with every target atom of the fragment of its
 color (``_shift_seeds``): the optimum then usually pairs the element's surroundings
 otherwise than the fragment did (a chain shifted along a double bond, the arms of a centre
 swapped). With inversions allowed, the search also starts from every seed it would start
@@ -71,12 +74,7 @@ from .adapter import MolView, build_view, parse
 from .coloring import coloring
 from .cost import change_size, global_bound, kept_counts, lomap_weights
 from .errors import UnsupportedInput
-from .graph import canonical_key
-from .preference import dedupe, preference_key
-from .refine import EPS, RefineOutcome, refine
-from .result import MappingResult, assemble, unsupported, versions
-from .settings import Settings
-from .stage1 import (
+from .fragment_search import (
     ENGINE,
     _arrays,
     _ordered,
@@ -85,6 +83,11 @@ from .stage1 import (
     reversed_bond_pieces,
     single_pairs,
 )
+from .graph import canonical_key
+from .preference import dedupe, preference_key
+from .refine import EPS, RefineOutcome, refine
+from .result import MappingResult, assemble, unsupported, versions
+from .settings import Settings
 from .stereo import _TETRAHEDRAL, _compare, _perceive
 
 _RULES = (
@@ -260,7 +263,7 @@ class _Rules:
         return out
 
     def with_bonds_reversed(self, mapping: Mapping[int, int]) -> list[dict[int, int]]:
-        """``stage1.reversed_bond_pieces`` on this pair, read from the cached lookups."""
+        """``fragment_search.reversed_bond_pieces`` on this pair, read from the cached lookups."""
         return reversed_bond_pieces(
             mapping, self.bonds, self.source_color, self.adj, self.target_adj
         )
@@ -566,9 +569,9 @@ def _connected_fragments(
         target_labels,
         target_bonds,
         max_steps=max_steps,
-        max_fragments=settings.max_stage1_solutions,
+        max_fragments=settings.max_fragments,
         min_bonds=1,
-        max_pairs=settings.stage1_bond_pairs,
+        max_pairs=settings.fragment_bond_pairs,
         best_only=True,
         rings=rings,
         time_limit_s=left,
@@ -724,21 +727,28 @@ def _search(
     # the objective charges for; the fragments on element labels too seed the search.
     labels = [_color] if element_hard else [_color, _color_and_element]
     # With element soft, the search on element labels runs first: a fragment on element
-    # labels is one on ring and chain labels too, so the coarser search (most of Stage 1's
+    # labels is one on ring and chain labels too, so the coarser search (most of the fragment
     # time) starts from its best score and cuts more. That search scores parts of maximal
     # cliques, which can score less than the fragment (the trim is not monotone); if none
     # reaches the score, the engine searches again from zero (``FragmentLimits``).
     # The fragments keep the order of ``labels``.
+    # That coarser search (the coarse pass) has a step cap of its own
+    # (``Settings.coarse_fragment_steps``): on polycyclic pairs it takes most of the time
+    # and seldom finds a fragment that changes the result. Reaching the cap is part of the
+    # method, not a stop: the fragments found so far seed the search.
     found_by_label: dict[Callable[[Mapping[str, Any]], tuple[Any, ...]], list] = {}
-    steps, stops, truncated, known = 0, set(), False, 0
+    steps, stops, truncated, known, coarse_capped = 0, set(), False, 0, False
     for label in reversed(labels):
+        budget = settings.fragment_steps - steps
+        coarse = label is _color and len(labels) > 1
+        limit = min(budget, settings.coarse_fragment_steps) if coarse else budget
         found, used_steps, stop, capped, best_score = _connected_fragments(
             source,
             target,
             rules,
             settings,
             label,
-            settings.stage1_steps - steps,
+            limit,
             deadline,
             known_score=known,
         )
@@ -746,10 +756,12 @@ def _search(
         known = max(known, best_score)
         steps += used_steps
         truncated |= capped
-        if stop:
+        if stop == "steps" and limit < budget:
+            coarse_capped = True
+        elif stop:
             stops.add(stop)
     fragments = [fragment for label in labels for fragment in found_by_label[label]]
-    stage1_stop = ",".join(sorted(stops)) or None
+    fragment_stop = ",".join(sorted(stops)) or None
     # Seeding reads the clock too: on pairs with thousands of fragments it takes seconds.
     # Past the deadline, the seeds made so far are searched (refinement stops at once) and
     # the call reports "time".
@@ -757,7 +769,7 @@ def _search(
     pieces: list[dict[int, int]] = []
     for fragment in fragments:
         # The first fragment that yields a piece is trimmed even past the deadline: when the
-        # clock stopped Stage 1, dropping it would leave only a single-atom seed.
+        # clock stopped the fragment search, dropping it would leave only a single-atom seed.
         if pieces and time.perf_counter() > deadline:
             late = True
             break
@@ -897,14 +909,15 @@ def _search(
             "complete": bound_complete,
             "gap": None if bound is None else out.cost - bound,
         },
-        "stage1": {
+        "fragment_search": {
             "engine": ENGINE,
             "objective": "largest connected common edge subgraphs (Koch c-cliques), and "
             "those with the most bonds once trimmed to complete rings; on element labels "
             "too when element is soft",
             "fragments": len(fragments),
             "truncated": truncated,
-            "stopped_by": stage1_stop,
+            "stopped_by": fragment_stop,
+            "coarse_capped": coarse_capped,
             "steps": steps,
         },
         "seeds": len(seeds),
