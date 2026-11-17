@@ -32,34 +32,16 @@ elements fixed. Times are wall clock for the whole call from the SMILES strings.
 Run on 2026-11-16 on an AMD Ryzen Threadripper PRO 5975WX (32 cores, 64 threads) with 32
 workers, Python 3.12, RDKit 2026.03.6, LOMAP 3.3.0 and atommapper 0.1.0. No method failed
 on any pair. atommapper (bonds) times the same as atommapper (change) to within a few
-milliseconds, so only the latter is shown.
+milliseconds, so the figure shows only the latter.
 
 ### Time per pair
 
-| | | LOMAP | atommapper | speed-up |
-|---|---|---|---|---|
-| FEP networks, elements free | median | 16 ms | 14 ms | 1.1× |
-| | mean | 366 ms | 19 ms | 19× |
-| | 99th percentile | 6.6 s | 63 ms | |
-| | slowest | 20.2 s | 209 ms | |
-| FEP networks, elements fixed | median | 17 ms | 8 ms | 2.1× |
-| | mean | 952 ms | 9 ms | 106× |
-| | 99th percentile | 20.3 s | 23 ms | |
-| | slowest | 22.0 s | 36 ms | |
-| AZ pairs, elements free | median | 19 ms | 15 ms | 1.3× |
-| | mean | 530 ms | 31 ms | 17× |
-| | 99th percentile | 19.0 s | 244 ms | |
-| | slowest | 21.6 s | 3.2 s | |
-| AZ pairs, elements fixed | median | 19 ms | 8 ms | 2.4× |
-| | mean | 699 ms | 11 ms | 64× |
-| | 99th percentile | 20.5 s | 50 ms | |
-| | slowest | 21.9 s | 1.6 s | |
-
 ![Fraction of pairs taking at least a given time, log-log: atommapper's curves fall off below a second, LOMAP's run on to its 20 s timeout](timing.png)
 
-atommapper is 1.1-2.4 times faster on a typical pair. LOMAP's mean is set by its tail:
-its MCS search reached the 20 s timeout on 4 and 14 of the FEP pairs (elements free and
-fixed) and on 24 and 41 of the AZ pairs, and then goes on with the MCS found so far.
+atommapper is 1.1-2.4 times faster at the median and takes at most 3.2 s on any pair.
+LOMAP's slow tail comes from its MCS search: it reached the 20 s timeout on 4 and 14 of
+the FEP pairs (elements free and fixed) and on 24 and 41 of the AZ pairs, and LOMAP then
+goes on with the MCS found so far.
 
 ### Mappings
 
