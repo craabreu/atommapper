@@ -1,7 +1,9 @@
 """AtomMapper against OpenFE's LOMAP: time and result on the same pairs, side by side.
 
 Usage: python benchmarks/compare_lomap.py run PAIRS.csv OUT.jsonl [--workers N] [--limit N]
+                                              [--reverse]
        python benchmarks/compare_lomap.py summary OUT.jsonl [OUT.jsonl ...]
+       python benchmarks/compare_lomap.py symmetry FORWARD.jsonl REVERSE.jsonl
 
 PAIRS.csv needs ``source`` and ``target`` SMILES columns (``group`` optional). Needs LOMAP
 (``lomap2`` on conda-forge or PyPI) besides atommapper.
@@ -17,6 +19,10 @@ each with elements free (LOMAP's ``element_change=True``) and fixed. Times are w
 for the whole call from the SMILES strings. Every mapping is then judged the same way, by
 AtomMapper's own code: the atoms and bonds it keeps, the size of the change, and which of
 LOMAP's rules (as AtomMapper states them) it breaks.
+
+``--reverse`` maps each pair the other way round (target to source). ``symmetry`` compares
+a forward run with a reverse run of the same pairs: how often each method's answer depends
+on which molecule comes first.
 """
 
 import argparse
@@ -87,9 +93,12 @@ def lomap_map(source: str, target: str, element_change: bool) -> list[tuple[int,
 
 def atommapper_map(
     source: str, target: str, element_change: bool, objective: str
-) -> list[tuple[int, int]]:
+) -> tuple[list[tuple[int, int]], str | None]:
+    """The heavy-atom map, and the limits that stopped the search (None when it finished):
+    ``"time"`` among them means the clock stopped it."""
     result = map_atoms(source, target, element_change=element_change, objective=objective)
-    return [(a.source_index, a.target_index) for a in result.mapping]
+    pairs = [(a.source_index, a.target_index) for a in result.mapping]
+    return pairs, result.metadata["budget"]["stopped_by"]
 
 
 def judged(source: str, target: str, pairs: list[tuple[int, int]], element_change: bool) -> dict:
@@ -125,12 +134,13 @@ def run_pair(args: tuple[int, dict[str, str]]) -> dict:
     for mode, element_change in MODES.items():
         for method in METHODS:
             CANCELED.clear()
+            stopped_by = None
             start = time.perf_counter()
             try:
                 if method == "lomap":
                     pairs = lomap_map(source, target, element_change)
                 else:
-                    pairs = atommapper_map(source, target, element_change, method)
+                    pairs, stopped_by = atommapper_map(source, target, element_change, method)
                 error = None
             except Exception as exc:  # recorded, not raised: one bad pair must not stop a run
                 pairs, error = [], f"{type(exc).__name__}: {exc}"[:300]
@@ -138,6 +148,9 @@ def run_pair(args: tuple[int, dict[str, str]]) -> dict:
             entry: dict = {"t": seconds, "error": error}
             if method == "lomap":
                 entry["timed_out"] = any(CANCELED)
+            else:
+                entry["stopped_by"] = stopped_by
+                entry["timed_out"] = "time" in (stopped_by or "").split(",")
             if error is None:
                 entry |= judged(source, target, pairs, element_change)
             record[f"{method}_{mode}"] = entry
@@ -147,6 +160,8 @@ def run_pair(args: tuple[int, dict[str, str]]) -> dict:
 def run(args: argparse.Namespace) -> None:
     with open(args.pairs, newline="") as handle:
         rows = list(csv.DictReader(handle))[: args.limit]
+    if args.reverse:
+        rows = [{**row, "source": row["target"], "target": row["source"]} for row in rows]
     with Pool(args.workers) as pool, open(args.out, "w") as out:
         jobs = pool.imap_unordered(run_pair, enumerate(rows), chunksize=1)
         for done, record in enumerate(jobs, 1):
@@ -154,6 +169,47 @@ def run(args: argparse.Namespace) -> None:
             out.flush()
             if done % 500 == 0:
                 print(f"{done}/{len(rows)}", file=sys.stderr, flush=True)
+
+
+def _swapped(key: list[list[int]]) -> list[list[int]]:
+    """A mapping's key read from the other side, as a reverse run writes it."""
+    return sorted([b, a] for a, b in key)
+
+
+def symmetry(forward_path: str, reverse_path: str) -> str:
+    """How often each method's answer changes when the two molecules swap places, on the
+    pairs where no run of that method was stopped by the clock."""
+    runs = []
+    for path in (forward_path, reverse_path):
+        with open(path) as handle:
+            runs.append({r["i"]: r for r in map(json.loads, handle)})
+    forward, reverse = runs
+    common = sorted(forward.keys() & reverse.keys())
+    lines = [f"{len(common)} pairs in both directions ({forward_path}, {reverse_path})", ""]
+    lines += [
+        "| | method | pairs compared | different bonds kept | different mapping |",
+        "|---|---|---|---|---|",
+    ]
+    for mode in MODES:
+        for method in METHODS:
+            rows = [
+                (forward[i][f"{method}_{mode}"], reverse[i][f"{method}_{mode}"]) for i in common
+            ]
+            rows = [(a, b) for a, b in rows if a["error"] is None and b["error"] is None]
+            rows = [(a, b) for a, b in rows if not (a.get("timed_out") or b.get("timed_out"))]
+            bonds = sum(a["bonds"] != b["bonds"] for a, b in rows)
+            mapping = sum(a["key"] != _swapped(b["key"]) for a, b in rows)
+            lines.append(
+                f"| elements {mode} | {method} | {len(rows)} | {_share(bonds, len(rows))} | "
+                f"{_share(mapping, len(rows))} |"
+            )
+    return "\n".join(lines)
+
+
+def _timed_out(record: dict, method: str, mode: str) -> bool:
+    """Whether the clock stopped ``method``'s search on this pair (records written before the
+    flag existed count as not stopped)."""
+    return bool(record[f"{method}_{mode}"].get("timed_out"))
 
 
 def _seconds(value: float) -> str:
@@ -166,8 +222,7 @@ def _share(count: int, total: int) -> str:
 
 def _versus(ok: list[dict], mode: str, method: str, field: str, better: str) -> str:
     """How often ``method`` does better, as well, or worse than LOMAP on ``field``, with how
-    many of the better ones LOMAP's clock cut short and how many of the worse ones keep a
-    stereo element LOMAP's mapping inverts."""
+    many of the worse ones keep a stereo element LOMAP's mapping inverts."""
     rows = [r for r in ok if r[f"{method}_{mode}"][field] is not None]
     rows = [r for r in rows if r[f"lomap_{mode}"][field] is not None]
 
@@ -177,10 +232,9 @@ def _versus(ok: list[dict], mode: str, method: str, field: str, better: str) -> 
 
     wins = [r for r in rows if outcome(r) > 0]
     losses = [r for r in rows if outcome(r) < 0]
-    timed_out = sum(r[f"lomap_{mode}"]["timed_out"] for r in wins)
     inverted = sum(r[f"lomap_{mode}"]["broken"]["stereo"] for r in losses)
     return (
-        f"better {_share(len(wins), len(rows))} ({timed_out} where LOMAP timed out), "
+        f"better {_share(len(wins), len(rows))}, "
         f"same {_share(len(rows) - len(wins) - len(losses), len(rows))}, "
         f"worse {_share(len(losses), len(rows))} ({inverted} where LOMAP's mapping inverts "
         f"a stereo element)"
@@ -196,13 +250,24 @@ def summary(paths: list[str]) -> str:
     n = len(records)
     lines = [f"{n} pairs ({', '.join(paths)})", ""]
     for mode in MODES:
-        ok = [r for r in records if all(r[f"{m}_{mode}"]["error"] is None for m in METHODS)]
+        # A search the clock stopped returns what it found by then, which depends on the
+        # machine's speed and load: a pair where any method was stopped so is timed but
+        # not compared. (A search stopped by a work budget stops at the same point on every
+        # machine, so it stays in.)
+        mapped = [r for r in records if all(r[f"{m}_{mode}"]["error"] is None for m in METHODS)]
+        ok = [r for r in mapped if not any(_timed_out(r, m, mode) for m in METHODS)]
         lines += [f"### Elements {mode}", ""]
         errors = {m: sum(r[f"{m}_{mode}"]["error"] is not None for r in records) for m in METHODS}
-        timeouts = sum(bool(r[f"lomap_{mode}"].get("timed_out")) for r in records)
+        clock = {m: sum(_timed_out(r, m, mode) for r in records) for m in METHODS}
+        budget = {
+            m: sum(bool(r[f"{m}_{mode}"].get("stopped_by")) for r in records) - clock[m]
+            for m in METHODS[1:]
+        }
         lines += [
-            f"Errors: {errors}; compared on the {len(ok)} pairs that all three mapped. LOMAP's "
-            f"MCS search reached its 20 s timeout on {_share(timeouts, n)} pairs.",
+            f"Errors: {errors}. Stopped by the clock (LOMAP's 20 s MCS timeout, AtomMapper's "
+            f"time limit): {clock}; AtomMapper stopped by a work budget: {budget}. Times are "
+            f"over all pairs; mappings are compared on the {len(ok)} pairs that all three "
+            f"mapped and that no clock stopped.",
             "",
         ]
         lines += ["| | LOMAP | AtomMapper (change) | AtomMapper (bonds) |", "|---|---|---|---|"]
@@ -250,13 +315,19 @@ def main() -> None:
     run_parser.add_argument("out")
     run_parser.add_argument("--workers", type=int, default=8)
     run_parser.add_argument("--limit", type=int, default=None)
+    run_parser.add_argument("--reverse", action="store_true", help="map target to source")
     summary_parser = commands.add_parser("summary")
     summary_parser.add_argument("records", nargs="+")
+    symmetry_parser = commands.add_parser("symmetry")
+    symmetry_parser.add_argument("forward")
+    symmetry_parser.add_argument("reverse")
     args = parser.parse_args()
     if args.command == "run":
         run(args)
-    else:
+    elif args.command == "summary":
         print(summary(args.records))
+    else:
+        print(symmetry(args.forward, args.reverse))
 
 
 if __name__ == "__main__":

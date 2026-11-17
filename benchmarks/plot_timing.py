@@ -1,8 +1,9 @@
 """The time per pair of LOMAP and AtomMapper, as the fraction of pairs that take at least a
 given time, on log-log axes, so that the slow tail shows.
 
-Usage: python benchmarks/plot_timing.py FEP.jsonl AZ.jsonl OUT_STEM
-Writes OUT_STEM.png from the records of ``compare_lomap.py run``.
+Usage: python benchmarks/plot_timing.py FEP.jsonl[,FEP_REVERSE.jsonl] AZ.jsonl[,...] OUT_STEM
+Writes OUT_STEM.png from the records of ``compare_lomap.py run``; several record files of
+one dataset (a forward and a reverse run, say) are given separated by commas.
 """
 
 import json
@@ -29,9 +30,13 @@ SERIES = (
 )
 
 
-def records(path: str) -> list[dict]:
-    with open(path) as handle:
-        return [json.loads(line) for line in handle]
+def records(paths: str) -> list[dict]:
+    """The records of every file in the comma-separated ``paths``."""
+    out = []
+    for path in paths.split(","):
+        with open(path) as handle:
+            out += [json.loads(line) for line in handle]
+    return out
 
 
 def at_least(times: list[float]) -> tuple[np.ndarray, np.ndarray]:
@@ -46,6 +51,8 @@ def main() -> None:
     fig, axes = plt.subplots(1, 2, sharey=True)
     datasets = (("FEP networks", records(fep_path)), ("AZ matched pairs", records(az_path)))
     for ax, (title, rows) in zip(axes, datasets, strict=True):
+        pairs = len({r["i"] for r in rows})
+        runs = f", {len(rows) // pairs} directions" if len(rows) > pairs else ""
         for key, label, color, style in SERIES:
             xs, ys = at_least([r[key]["t"] for r in rows])
             ax.step(xs, ys, where="post", color=color, linestyle=style, label=label)
@@ -66,7 +73,7 @@ def main() -> None:
             xlim=(1e-3, 40.0),
             ylim=(1.0 / len(rows) / 1.5, 1.4),
             xlabel="Time per pair (s)",
-            title=f"{title} ({len(rows):,} pairs)",
+            title=f"{title} ({pairs:,} pairs{runs})",
         )
     axes[0].set_ylabel("Fraction of pairs taking at least this long")
     # Outside the axes, in one row under both panels, so that it covers no curve.
