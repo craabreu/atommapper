@@ -55,7 +55,9 @@ milliseconds, so only the latter is shown.
 | | 99th percentile | 20.5 s | 50 ms | |
 | | slowest | 21.9 s | 1.6 s | |
 
-On a typical pair the two take about the same time. LOMAP's mean is set by its tail:
+![Fraction of pairs taking at least a given time, log-log: atommapper's curves fall off below a second, LOMAP's run on to its 20 s timeout](timing.png)
+
+atommapper is 1.1-2.4 times faster on a typical pair. LOMAP's mean is set by its tail:
 its MCS search reached the 20 s timeout on 4 and 14 of the FEP pairs (elements free and
 fixed) and on 24 and 41 of the AZ pairs, and then goes on with the MCS found so far.
 
@@ -92,4 +94,6 @@ python benchmarks/compare_lomap.py run fep.csv fep.jsonl --workers 32
 python benchmarks/compare_lomap.py summary fep.jsonl
 ```
 
-The summary prints the tables above for one or more record files.
+The summary prints the tables above for one or more record files, and
+`python benchmarks/plot_timing.py fep.jsonl az.jsonl benchmarks/timing` draws the figure
+(it needs Matplotlib).

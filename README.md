@@ -5,6 +5,17 @@ and a target, it finds which heavy atoms are the same atom, keeping one connecte
 with whole rings and no inverted stereocentre, and it reports the result as a numbered
 reaction SMILES, an atom mapping, and the atoms and bonds that change.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/craabreu/atommapper/main/docs/images/example.png" width="820"
+       alt="Two related ligands side by side: kept atoms aligned, a hydroxyl removed, a triazolylmethyl group added, three methyl carbons become fluorines, and a new stereocentre labelled R">
+</p>
+
+Two ligands of the EG5 series of the protein-ligand benchmark. Kept atoms sit at the same
+place in both panels; the hydroxyl leaves, a triazolylmethyl group arrives, the three
+methyl carbons of the *tert*-butyl become the fluorines of a trifluoromethyl, and a ring
+carbon becomes a stereocentre. The drawing comes from
+`atommapper SOURCE TARGET --draw example.png` (see Drawings).
+
 ## Install
 
 The search engine is written in Rust, so building from source needs a Rust toolchain
@@ -218,13 +229,12 @@ maximum common substructure after choosing it.
 
 ## Compared with LOMAP
 
-On the 529 pairs of the free energy networks of the protein-ligand benchmark and on 3,000
-AstraZeneca matched pairs, atommapper finds the same mapping as LOMAP, up to symmetry, for
-95-98% of the pairs, and never keeps fewer bonds than LOMAP among the mappings that satisfy
-the rules. It is 1.1-2.4 times faster at the median and has no slow tail: the mean time
-per pair is 17-106 times lower, because LOMAP's MCS search runs into its 20 s timeout on
-about 1-3% of the pairs. [benchmarks/README.md](https://github.com/craabreu/atommapper/blob/main/benchmarks/README.md)
-has the method, the numbers and how to run it.
+On the free energy networks of the protein-ligand benchmark and on AstraZeneca matched
+pairs, atommapper finds the same mapping as OpenFE's LOMAP for 95-98% of the pairs, up to
+symmetry. It is 1.1-2.4 times faster on a typical pair and has none of LOMAP's slow tail,
+which runs into its 20 s timeout on 1-3% of the pairs.
+[benchmarks/README.md](https://github.com/craabreu/atommapper/blob/main/benchmarks/README.md)
+has the method, the numbers and where the two disagree.
 
 ## How it works
 
