@@ -46,6 +46,42 @@ result.metadata["size"]  # 4: one atom and one bond out, one atom and one bond i
 `source_index` and `target_index` are atom indices of the inputs as given, which can be
 SMILES strings or RDKit molecules.
 
+## Drawings
+
+`--draw FILE` also draws the pair, as SVG or PNG by the file's suffix:
+
+```bash
+atommapper "Cc1ccc(F)cc1" "Cc1cccc(F)c1" --draw walk.png --size 400x300
+```
+
+The source and the target sit side by side, each panel `--size` pixels, over a legend that
+counts what is kept, removed, added and changed, with atoms and bonds in separate rows.
+
+- **Aligned.** Both panels share one scale and one origin, and the target is drawn with its
+  kept atoms where the source has them, so a kept atom is at the same place in each panel.
+- **Marked.** Light tints under the structure show what leaves (vermillion, on the source),
+  what arrives (green, on the target), and which kept atoms and bonds change (blue, on
+  both): element, charge, bond order or stereo. The colors stay distinct under the common
+  forms of color blindness.
+- **Stereo.** An inverted centre carries its label on each side, (R) and (S), and an
+  inverted double bond (E) and (Z). Every double bond is drawn with the geometry the
+  molecule has, even when that moves kept atoms away from the source's positions.
+- **Not marked.** A changed hydrogen count, since the bond that forms or breaks at the atom
+  already shows it.
+
+`--numbers` labels the kept atoms with their identifiers.
+
+In a notebook, a result displays as this drawing. In Python:
+
+```python
+from atommapper import draw_png, draw_svg, map_atoms, save_image
+
+result = map_atoms("Cc1ccc(F)cc1", "Cc1cccc(F)c1")
+svg = draw_svg(result, width=400, height=300)  # SVG text
+png = draw_png(result, numbers=True)           # PNG bytes, kept atoms numbered
+save_image(result, "walk.svg")                 # SVG or PNG by the suffix
+```
+
 ## The rules
 
 What is kept must satisfy all of these:
