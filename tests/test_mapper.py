@@ -168,6 +168,55 @@ def test_a_mirrored_core_is_kept_when_inversions_are_allowed():
     assert result.metadata["size"] == 26 + 2
 
 
+# Pairs of CHEMBL2034 ligands (MoleculeACE) whose largest common fragments hold a mirrored
+# core: the strict trim cuts one down to a single atom, the seed of the best mapping. With
+# inversions allowed that trim drops nothing, and before the strict seeds were added the
+# search ended at sizes 90, 76, 71 and 89.
+CHEMBL2034 = [
+    (
+        "Cc1cccc([C@@](C)(O)[C@H]2CCCC3=Cc4c(-c5ccc(F)cc5)ncn4C[C@@]32C)c1",
+        "Cc1ccc(S(=O)(=O)N2CCC3=Cc4c(cnn4-c4ccc(F)cc4)C[C@]3(C(=O)c3ccccn3)C2)cc1",
+        60,
+    ),
+    (
+        "COC[C@]12Cc3cnn(-c4ccc(F)cc4)c3C=C1CCN(S(=O)(=O)c1ccccc1)C2",
+        "C[C@@](O)(c1ccccn1)[C@H]1CCCC2=Cc3c(-c4ccc(F)cc4)ncn3C[C@@]21C",
+        45,
+    ),
+    (
+        "C=C1C[C@H](C)C[C@@H](C)[C@@H]1Cc1cc(OC)c(Br)cc1O",
+        "Cc1ccccc1S(=O)(=O)N1CCC2=Cc3c(cnn3-c3ccc(F)cc3)C[C@]2(C(=O)c2ccccn2)C1",
+        70,
+    ),
+    (
+        "C[C@@](O)(c1ccncc1)[C@H]1CCCC2=Cc3c(-c4ccc(F)cc4)ncn3C[C@@]21C",
+        "O=C(c1nccs1)[C@]12Cc3cnn(-c4ccc(F)cc4)c3C=C1CCN(S(=O)(=O)c1ccc(Cl)c(Cl)c1)C2",
+        58,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("source", "target"),
+    [pair[:2] for pair in CHEMBL2034] + [MIRRORED_CORE, ("CC/C=C/CC", "CC/C=C\\CC")],
+)
+def test_allowing_inversion_never_makes_the_change_larger(source, target):
+    # every mapping the rule accepts is accepted when inversions are allowed, and costs the
+    # same; the strict search's seeds are searched too, so none of its results is missed
+    strict = map_atoms(source, target)
+    allowed = map_atoms(source, target, allow_stereo_inversion=True)
+    assert allowed.metadata["size"] <= strict.metadata["size"]
+
+
+@pytest.mark.parametrize(("source", "target", "size"), CHEMBL2034)
+def test_an_allowed_mapping_without_inversion_is_the_strict_one(source, target, size):
+    strict = map_atoms(source, target)
+    allowed = map_atoms(source, target, allow_stereo_inversion=True)
+    assert strict.metadata["size"] == allowed.metadata["size"] == size
+    assert "inverted" not in [v["status"] for v in allowed.metadata["stereo"]]
+    assert allowed.reaction_smiles == strict.reaction_smiles
+
+
 @pytest.mark.parametrize(
     ("source", "target"),
     [("CCO", "CCN"), ("c1ccccc1", "C1CCCC1"), ("CC1CC1", "C1CC1C"), ("OC1CCC1", "NC1CC1")],
@@ -451,12 +500,19 @@ def test_shifted_seeds_keep_the_result_independent_of_atom_order(source, target,
     assert outcome(target, source) == reference
 
 
-@pytest.mark.parametrize(("source", "target"), [("CC/C=C/CC", "CC/C=C\\CC"), ("CCO", "CCN")])
-def test_no_seed_is_added_without_a_stereo_trim(source, target):
-    # with inversions allowed the trim drops nothing for them; without a stereo element
-    # there is nothing to drop
-    assert map_atoms(source, target, allow_stereo_inversion=True).metadata["shift_seeds"] == 0
+def test_no_seed_is_added_without_a_stereo_trim():
+    # without a stereo element there is nothing to drop, inversions allowed or not
     assert map_atoms("CCO", "CCN").metadata["shift_seeds"] == 0
+    assert map_atoms("CCO", "CCN", allow_stereo_inversion=True).metadata["shift_seeds"] == 0
+
+
+def test_allowed_inversions_are_seeded_from_the_strict_trims_too():
+    # the strict trim drops the double bond's ends: its shift seeds start the search with
+    # inversions allowed as well
+    source, target = "CC/C=C/CC", "CC/C=C\\CC"
+    strict = map_atoms(source, target).metadata["shift_seeds"]
+    assert strict > 0
+    assert map_atoms(source, target, allow_stereo_inversion=True).metadata["shift_seeds"] == strict
 
 
 @pytest.mark.parametrize("element_change", [True, False])

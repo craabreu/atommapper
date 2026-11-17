@@ -52,9 +52,11 @@ satisfy the rules. When a trim drops atoms for an inverted stereo element, the s
 also seeded from each dropped atom paired with every target atom of the fragment of its
 color (``_shift_seeds``): the optimum then usually pairs the element's surroundings
 otherwise than the fragment did (a chain shifted along a double bond, the arms of a centre
-swapped). The seeds are kept whole, so the result is optimal given them, not optimal:
-when the largest fragments break another rule, the optimum may hold no seed, and the
-result can then be far from it (README, "Limits").
+swapped). With inversions allowed, the search also starts from every seed it would start
+from with them forbidden, so allowing them never gives a larger change (unless a budget or
+the time limit stops the search). The seeds are kept whole, so the result is optimal
+given them, not optimal: when the largest fragments break another rule, the optimum may
+hold no seed, and the result can then be far from it (README, "Limits").
 """
 
 import time
@@ -130,10 +132,10 @@ class _Rules:
     ) -> None:
         self.allow_stereo_inversion = allow_stereo_inversion
         self.source, self.target = source.alignment, target.alignment
-        # _trim's results by (correspondence, gentle): trimmed_pieces and stereo_dropped
-        # trim the same fragments, often thousands of them on one pair.
+        # _trim's results by (correspondence, gentle, forbid_inversion): trimmed_pieces and
+        # stereo_dropped trim the same fragments, often thousands of them on one pair.
         self._trims: dict[
-            tuple[frozenset[tuple[int, int]], bool], tuple[dict[int, int], set[int]]
+            tuple[frozenset[tuple[int, int]], bool, bool], tuple[dict[int, int], set[int]]
         ] = {}
         self.adj = {v: list(self.source.neighbors(v)) for v in self.source}
         self.adj_set = {v: set(n) for v, n in self.adj.items()}
@@ -202,13 +204,14 @@ class _Rules:
             mapping[v],
         ) in self.target_ring_bonds
 
-    def broken(self, mapping: Mapping[int, int]) -> set[int]:
+    def broken(self, mapping: Mapping[int, int], forbid_inversion: bool = False) -> set[int]:
         """Source atoms that break a rule other than one piece: ring atoms and ends of ring
         bonds off every cycle of the kept part, inverted stereocentres, and both ends of a
         bond lost between kept atoms. Inverted stereo elements break no rule when they are
-        allowed; they cost a change instead (``inversion_cost``)."""
+        allowed; they cost a change instead (``inversion_cost``). ``forbid_inversion``
+        applies the rule against them even then (the strict trims of ``trimmed_pieces``)."""
         out = self._off_cycles(mapping, self.kept_adjacency(mapping))
-        if not self.allow_stereo_inversion:
+        if forbid_inversion or not self.allow_stereo_inversion:
             out |= self.inverted(mapping)
         out |= self.lost_between_kept(mapping)
         return out
@@ -409,43 +412,58 @@ class _Rules:
         (dropping them breaks no other cycle), and keeps more of a fragment that threads
         through rings. Both go: refinement keeps a seed whole, and the larger seed is not
         always the better start.
+
+        With inversions allowed, the trims run twice: as the rules stand, which keeps an
+        inverted element, and as if inversions were forbidden. A seed that holds an
+        inverted element keeps it through refinement, so without the second run the search
+        would miss every mapping that only a seed cut free of the inversion leads to, and
+        could end worse than with inversions forbidden. With both, it starts from every seed
+        the strict search starts from, and each leads at least as far as under the rule.
         """
         out = []
-        for gentle in (False, True):
-            kept, _ = self._trim(mapping, gentle)
-            pieces = self.pieces(kept)
-            largest = max((len(piece) for piece in pieces), default=0)
-            out += [
-                {s: kept[s] for s in sorted(piece)} for piece in pieces if len(piece) == largest
-            ]
+        for forbid in (False, True) if self.allow_stereo_inversion else (True,):
+            for gentle in (False, True):
+                kept, _ = self._trim(mapping, gentle, forbid)
+                pieces = self.pieces(kept)
+                largest = max((len(piece) for piece in pieces), default=0)
+                out += [
+                    {s: kept[s] for s in sorted(piece)} for piece in pieces if len(piece) == largest
+                ]
         return out
 
     def stereo_dropped(self, mapping: Mapping[int, int]) -> set[int]:
         """Source atoms either trim of ``trimmed_pieces`` drops for an inverted stereo
-        element (none when inversions are allowed: the trims leave them)."""
-        return self._trim(mapping, False)[1] | self._trim(mapping, True)[1]
+        element, under the rule against them even when inversions are allowed (the strict
+        trims, which seed that search too)."""
+        return self._trim(mapping, False, True)[1] | self._trim(mapping, True, True)[1]
 
-    def _trim(self, mapping: Mapping[int, int], gentle: bool) -> tuple[dict[int, int], set[int]]:
+    def _trim(
+        self, mapping: Mapping[int, int], gentle: bool, forbid_inversion: bool
+    ) -> tuple[dict[int, int], set[int]]:
         """``mapping`` trimmed to the rules, and the atoms dropped for an inverted stereo
-        element on the way (remembered: callers must not change them)."""
-        key = (frozenset(mapping.items()), gentle)
+        element on the way (remembered: callers must not change them).
+        ``forbid_inversion`` drops inverted elements even when inversions are allowed."""
+        key = (frozenset(mapping.items()), gentle, forbid_inversion)
         if key not in self._trims:
-            self._trims[key] = self._trim_uncached(mapping, gentle)
+            self._trims[key] = self._trim_uncached(mapping, gentle, forbid_inversion)
         return self._trims[key]
 
     def _trim_uncached(
-        self, mapping: Mapping[int, int], gentle: bool
+        self, mapping: Mapping[int, int], gentle: bool, forbid_inversion: bool
     ) -> tuple[dict[int, int], set[int]]:
         kept = dict(mapping)
         inverted: set[int] = set()
-        while drop := self._to_drop(kept, gentle):
-            if not self.allow_stereo_inversion:
+        forbid = forbid_inversion or not self.allow_stereo_inversion
+        while drop := self._to_drop(kept, gentle, forbid):
+            if forbid:
                 inverted |= drop & self.inverted(kept)
             for s in drop:
                 del kept[s]
         return kept, inverted
 
-    def _to_drop(self, mapping: Mapping[int, int], gentle: bool) -> set[int]:
+    def _to_drop(
+        self, mapping: Mapping[int, int], gentle: bool, forbid_inversion: bool
+    ) -> set[int]:
         if gentle:
             adj = self.kept_adjacency(mapping)
             bridges = _bridges(adj, adj)
@@ -456,7 +474,7 @@ class _Rules:
             }
             if lonely:
                 return lonely
-        return self.broken(mapping)
+        return self.broken(mapping, forbid_inversion)
 
 
 def _bridges(adj: Mapping[int, list[int]], roots: Iterable[int]) -> set[tuple[int, int]]:
@@ -573,9 +591,9 @@ def _shift_seeds(
     surroundings paired as in the fragment, and the best correspondence under the rule
     often pairs them otherwise (a chain shifted along a double bond, two arms of a centre
     swapped); a correspondence grows from any one of its pairs, and these are its likeliest
-    ones. Nothing is added when inversions are allowed: the trims drop no atom for them.
-    The second value says the deadline passed before every fragment was read; then none
-    is returned."""
+    ones. With inversions allowed they come from the strict trims, which seed that search
+    too (``_Rules.trimmed_pieces``). The second value says the deadline passed before every
+    fragment was read; then none is returned."""
     out = []
     for fragment in fragments:
         if time.perf_counter() > deadline:
