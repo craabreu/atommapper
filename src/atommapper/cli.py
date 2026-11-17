@@ -24,8 +24,9 @@ def _panel_size(text: str) -> tuple[int, int]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="atommapper",
-        description="Map the atoms of two molecules under LOMAP's rules; print a numbered "
-        "reaction SMILES or the full result.",
+        description="Map two molecules with a connected shared core, complete rings, and "
+        "preserved stereochemistry by default. Print mapped reaction SMILES, or use "
+        "--json for atom indices, changes, and search status. No coordinates required.",
     )
     parser.add_argument("source", help="source molecule SMILES")
     parser.add_argument("target", help="target molecule SMILES")
@@ -51,12 +52,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--objective",
         choices=("change", "bonds"),
         default="change",
-        help="change (the smallest change, the default) or bonds (LOMAP's, the most bonds kept)",
+        help="change: minimize atom/bond edits (default); bonds: maximize kept bonds, "
+        "then atoms, then minimize edits",
     )
     parser.add_argument(
         "--fixed-elements",
         action="store_true",
-        help="a kept atom keeps its element (LOMAP's element_change off)",
+        help="require matching elements for mapped atoms (default: element changes allowed)",
     )
     parser.add_argument(
         "--allow-stereo-inversion",
@@ -65,10 +67,16 @@ def build_parser() -> argparse.ArgumentParser:
         "one change (otherwise none may be kept inverted)",
     )
     parser.add_argument(
-        "--nodes", type=int, default=None, help="branch-and-bound nodes for the whole call"
+        "--nodes",
+        type=int,
+        default=None,
+        help="branch-and-bound node budget (default: 1000000)",
     )
     parser.add_argument(
-        "--steps", type=int, default=None, help="fragment search steps for the whole call"
+        "--steps",
+        type=int,
+        default=None,
+        help="fragment-search step budget (default: 20000000)",
     )
     parser.add_argument(
         "--pairs",
@@ -77,14 +85,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="ceiling on compatible bond pairs the fragment search takes (default 20000)",
     )
     parser.add_argument(
-        "--timeout", type=float, default=None, help="wall-clock limit for the whole call, seconds"
+        "--timeout",
+        type=float,
+        default=None,
+        help="wall-clock search limit in seconds, measured from call start (default: 60)",
     )
     parser.add_argument(
-        "--accept-partial", action="store_true", help="exit 0 even if a search budget ran out"
+        "--accept-partial",
+        action="store_true",
+        help="exit 0 for a partial result after a work or time limit (JSON status is unchanged)",
     )
     parser.epilog = (
         "exit status: 0 success, 1 invalid or unsupported input, 2 usage error, "
-        "3 a search budget ran out (unless --accept-partial)"
+        "3 a work or time limit stopped the search (unless --accept-partial)"
     )
     return parser
 

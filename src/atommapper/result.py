@@ -18,6 +18,13 @@ from .stereo import StereoVerdict, stereo_verdicts
 
 @dataclass(frozen=True)
 class MappedAtom:
+    """One atom correspondence.
+
+    ``identifier`` is its one-based atom-map number in ``reaction_smiles``.
+    ``source_index`` and ``target_index`` are zero-based indices in the inputs.
+    ``tag`` is "seed" or "refined", describing search provenance, not confidence.
+    """
+
     identifier: int
     source_index: int
     target_index: int
@@ -26,6 +33,14 @@ class MappedAtom:
 
 @dataclass(frozen=True)
 class AtomChange:
+    """An atom edit keyed by its atom-map ``identifier``, not its input index.
+
+    ``kind`` is "deleted", "inserted", "changed", or "stereo". For "changed",
+    ``attribute`` names the changed property and ``before``/``after`` hold its values.
+    For "stereo", attribute is the stereo verdict and the values are the CIP labels
+    when available. Insertions and deletions leave these optional fields as None.
+    """
+
     kind: str
     identifier: int
     attribute: str | None = None
@@ -35,6 +50,14 @@ class AtomChange:
 
 @dataclass(frozen=True)
 class BondChange:
+    """A bond edit keyed by the atom-map ``identifiers`` of its two endpoints.
+
+    ``kind`` is "deleted", "inserted", "changed", or "stereo". Attribute changes
+    include their ``attribute``, ``before``, and ``after`` values. For stereo changes,
+    attribute is the verdict and the values are the E/Z labels when available.
+    These identifiers are not input atom indices or RDKit bond indices.
+    """
+
     kind: str
     identifiers: tuple[int, int]
     attribute: str | None = None
@@ -53,6 +76,22 @@ class _Context:
 
 @dataclass(frozen=True)
 class MappingResult:
+    """Atom mapping, edits, and diagnostics returned by :func:`map_atoms`.
+
+    ``reaction_smiles`` uses shared atom-map numbers for mapped atoms and distinct
+    numbers for source-only and target-only atoms. ``mapping`` connects these numbers
+    to input atom indices; ``atom_changes`` and ``bond_changes`` use the map numbers.
+
+    Check ``status`` before consuming the result: "complete", "timed_out" (a partial
+    result after a work or time limit), "no_common_vertices" (empty mapping), or
+    "unsupported_input" (empty mapped SMILES). ``reason`` explains non-complete outcomes.
+    "complete" does not imply global optimality; consult ``metadata["optimality"]``.
+    Unsupported results have only version and settings metadata.
+
+    Display the result in a notebook to see an SVG drawing, or use ``save_image``.
+    Use ``to_dict()`` to serialize its public fields without internal molecule objects.
+    """
+
     reaction_smiles: str
     mapping: tuple[MappedAtom, ...]
     atom_changes: tuple[AtomChange, ...]
@@ -63,6 +102,11 @@ class MappingResult:
     _context: _Context | None = field(default=None, repr=False, compare=False)
 
     def to_dict(self) -> dict[str, Any]:
+        """Return public fields as plain data, excluding the internal molecule context.
+
+        Records become dictionaries and lists. The metadata dictionary is shared with
+        the result, not deep-copied. The output can be passed to ``json.dumps``.
+        """
         return {
             "reaction_smiles": self.reaction_smiles,
             "mapping": [asdict(m) for m in self.mapping],
@@ -81,7 +125,12 @@ class MappingResult:
         return draw_svg(self) if self.reaction_smiles else None
 
     def reverse(self) -> "MappingResult":
-        """Swap sides, invert the edits and renumber, without searching again."""
+        """Return the same correspondence in the opposite direction without a new search.
+
+        Swap source and target indices, invert the edits, and regenerate map numbers.
+        Search diagnostics describe the original search; ``metadata["reversed"]``
+        tracks the direction. The original result is not modified.
+        """
         metadata = {**self.metadata, "reversed": not self.metadata.get("reversed", False)}
         context = self._context
         if context is None:
