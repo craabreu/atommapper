@@ -40,7 +40,8 @@ def records(paths: str) -> list[dict]:
 
 
 def at_least(times: list[float]) -> tuple[np.ndarray, np.ndarray]:
-    """Each time, sorted, and the fraction of pairs that take at least that long."""
+    """Each time, sorted, and the fraction of pairs that take at least that long; drawn with
+    ``where="pre"``, the curve holds that fraction up to the time and steps down after it."""
     xs = np.sort(np.asarray(times))
     return xs, 1.0 - np.arange(xs.size) / xs.size
 
@@ -55,7 +56,7 @@ def main() -> None:
         runs = f", {len(rows) // pairs} directions" if len(rows) > pairs else ""
         for key, label, color, style in SERIES:
             xs, ys = at_least([r[key]["t"] for r in rows])
-            ax.step(xs, ys, where="post", color=color, linestyle=style, label=label)
+            ax.step(xs, ys, where="pre", color=color, linestyle=style, label=label)
         ax.axvline(LOMAP_TIMEOUT, color="0.55", linewidth=0.8, linestyle=":")
         ax.text(
             LOMAP_TIMEOUT / 1.15,

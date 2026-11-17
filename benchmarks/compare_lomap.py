@@ -4,6 +4,8 @@ Usage: python benchmarks/compare_lomap.py run PAIRS.csv OUT.jsonl [--workers N] 
                                               [--reverse]
        python benchmarks/compare_lomap.py summary OUT.jsonl [OUT.jsonl ...]
        python benchmarks/compare_lomap.py symmetry FORWARD.jsonl REVERSE.jsonl
+       python benchmarks/compare_lomap.py timeouts PAIRS.csv OUT.jsonl [OUT.jsonl ...]
+                                              [--limits 5 60] [--workers N]
 
 PAIRS.csv needs ``source`` and ``target`` SMILES columns (``group`` optional). Needs LOMAP
 (``lomap2`` on conda-forge or PyPI) besides atommapper.
@@ -20,9 +22,19 @@ for the whole call from the SMILES strings. Every mapping is then judged the sam
 AtomMapper's own code: the atoms and bonds it keeps, the size of the change, and which of
 LOMAP's rules (as AtomMapper states them) it breaks.
 
+Each worker imports LOMAP and maps one small pair with both tools before its first timed
+call, so no timing includes an import or a first-call warm-up.
+
 ``--reverse`` maps each pair the other way round (target to source). ``symmetry`` compares
 a forward run with a reverse run of the same pairs: how often each method's answer depends
-on which molecule comes first.
+on which molecule comes first. ``timeouts`` maps again, with other LOMAP timeouts, the cases
+where LOMAP's MCS search timed out, and reports how often its mapping changes: what a slower
+or faster machine would have returned.
+
+"Same mapping, up to symmetry" compares ``graph.canonical_key``: the sorted pairs of
+symmetry classes (RDKit canonical ranks without tie-breaking) the two atoms of each kept pair
+belong to. Two mappings with the same key are, in principle, not always related by a
+symmetry of the molecules, so the test is slightly coarse.
 """
 
 import argparse
@@ -75,8 +87,12 @@ def _record_cancels() -> None:
     rdFMCS.FindMCS = recording
 
 
-def lomap_map(source: str, target: str, element_change: bool) -> list[tuple[int, int]]:
-    from lomap import mcs
+def lomap_map(
+    source: str, target: str, element_change: bool, time_limit: int = 20
+) -> list[tuple[int, int]]:
+    """LOMAP's heavy-atom map, with ``time_limit`` seconds for each MCS search (its default
+    is 20)."""
+    from lomap import mcs  # already imported by ``_warm_up`` in the benchmark's workers
 
     _record_cancels()
 
@@ -86,7 +102,11 @@ def lomap_map(source: str, target: str, element_change: bool) -> list[tuple[int,
         return mol
 
     found = mcs.MCS(
-        prepared(source), prepared(target), verbose="error", element_change=element_change
+        prepared(source),
+        prepared(target),
+        time=time_limit,
+        verbose="error",
+        element_change=element_change,
     )
     return [(int(a), int(b)) for a, b in found.heavy_atom_mcs_map()]
 
@@ -103,7 +123,7 @@ def atommapper_map(
 
 def judged(source: str, target: str, pairs: list[tuple[int, int]], element_change: bool) -> dict:
     """A mapping in AtomMapper's terms: what it keeps, the size of the change, the rules it
-    breaks and its key up to symmetry."""
+    breaks and its key up to symmetry (``graph.canonical_key``; see the module docstring)."""
     colors = coloring("ring" if element_change else "element-ring")
     s = build_view(parse(source, "source"), "source", colors)
     t = build_view(parse(target, "target"), "target", colors)
@@ -157,18 +177,75 @@ def run_pair(args: tuple[int, dict[str, str]]) -> dict:
     return record
 
 
-def run(args: argparse.Namespace) -> None:
-    with open(args.pairs, newline="") as handle:
-        rows = list(csv.DictReader(handle))[: args.limit]
-    if args.reverse:
+def _warm_up() -> None:
+    """Import LOMAP and map one small pair with each tool, so that a worker's first timed
+    call pays no import (about a second for LOMAP) or first-call cost."""
+    for element_change in MODES.values():
+        lomap_map("CCO", "CCN", element_change)
+        atommapper_map("CCO", "CCN", element_change, "change")
+
+
+def _rows(path: str, limit: int | None, reverse: bool) -> list[dict[str, str]]:
+    with open(path, newline="") as handle:
+        rows = list(csv.DictReader(handle))[:limit]
+    if reverse:
         rows = [{**row, "source": row["target"], "target": row["source"]} for row in rows]
-    with Pool(args.workers) as pool, open(args.out, "w") as out:
+    return rows
+
+
+def run(args: argparse.Namespace) -> None:
+    rows = _rows(args.pairs, args.limit, args.reverse)
+    with Pool(args.workers, initializer=_warm_up) as pool, open(args.out, "w") as out:
         jobs = pool.imap_unordered(run_pair, enumerate(rows), chunksize=1)
         for done, record in enumerate(jobs, 1):
+            record["reverse"] = args.reverse
             out.write(json.dumps(record) + "\n")
             out.flush()
             if done % 500 == 0:
                 print(f"{done}/{len(rows)}", file=sys.stderr, flush=True)
+
+
+def _remap(job: tuple[str, str, str, int]) -> dict:
+    source, target, mode, limit = job
+    CANCELED.clear()
+    pairs = lomap_map(canonical(source), canonical(target), MODES[mode], limit)
+    entry = judged(canonical(source), canonical(target), pairs, MODES[mode])
+    return {"timed_out": any(CANCELED), "bonds": entry["bonds"], "key": entry["key"]}
+
+
+def timeouts(pairs_path: str, paths: list[str], limits: list[int], workers: int) -> str:
+    """LOMAP mapped again, with each of ``limits`` seconds for its MCS search, on every case
+    (pair, direction and element mode) of the records where its search timed out: how often
+    the mapping and the bonds it keeps differ from the 20 s result."""
+    cases = []
+    for path in paths:
+        with open(path) as handle:
+            for record in map(json.loads, handle):
+                row = _rows(pairs_path, None, record.get("reverse", False))[record["i"]]
+                for mode in MODES:
+                    if _timed_out(record, "lomap", mode):
+                        cases.append((row, mode, record[f"lomap_{mode}"]))
+    jobs = [
+        (row["source"], row["target"], mode, limit) for limit in limits for row, mode, _ in cases
+    ]
+    with Pool(workers, initializer=_warm_up) as pool:
+        results = pool.map(_remap, jobs, chunksize=1)
+    lines = [
+        f"{len(cases)} cases where LOMAP's MCS search timed out at 20 s ({', '.join(paths)})",
+        "",
+        "| timeout | still timed out | different mapping | more bonds | fewer bonds |",
+        "|---|---|---|---|---|",
+    ]
+    for k, limit in enumerate(limits):
+        chunk = results[k * len(cases) : (k + 1) * len(cases)]
+        pairs = [(new, old) for new, (_, _, old) in zip(chunk, cases, strict=True)]
+        lines.append(
+            f"| {limit} s | {sum(new['timed_out'] for new, _ in pairs)} | "
+            f"{sum(new['key'] != old['key'] for new, old in pairs)} | "
+            f"{sum(new['bonds'] > old['bonds'] for new, old in pairs)} | "
+            f"{sum(new['bonds'] < old['bonds'] for new, old in pairs)} |"
+        )
+    return "\n".join(lines)
 
 
 def _swapped(key: list[list[int]]) -> list[list[int]]:
@@ -321,13 +398,20 @@ def main() -> None:
     symmetry_parser = commands.add_parser("symmetry")
     symmetry_parser.add_argument("forward")
     symmetry_parser.add_argument("reverse")
+    timeouts_parser = commands.add_parser("timeouts")
+    timeouts_parser.add_argument("pairs")
+    timeouts_parser.add_argument("records", nargs="+")
+    timeouts_parser.add_argument("--limits", type=int, nargs="+", default=[5, 60])
+    timeouts_parser.add_argument("--workers", type=int, default=8)
     args = parser.parse_args()
     if args.command == "run":
         run(args)
     elif args.command == "summary":
         print(summary(args.records))
-    else:
+    elif args.command == "symmetry":
         print(symmetry(args.forward, args.reverse))
+    else:
+        print(timeouts(args.pairs, args.records, args.limits, args.workers))
 
 
 if __name__ == "__main__":

@@ -231,10 +231,11 @@ maximum common substructure after choosing it.
 
 On the free energy networks of the protein-ligand benchmark and on AstraZeneca matched
 pairs, AtomMapper finds the same mapping as OpenFE's LOMAP, up to symmetry, for 95-98% of
-the pairs where LOMAP's search finished. Mapping a whole set of pairs takes it 17-103 times
+the pairs where LOMAP's search finished. Mapping a whole set of pairs takes it 17-102 times
 less time, because it has none of LOMAP's slow tail: half of LOMAP's time goes to its
-slowest 1-2% of pairs, where its MCS search runs into its 20 s timeout or close to it.
-Unlike LOMAP, AtomMapper gives the same mapping whichever molecule comes first.
+slowest 0.8-2.3% of pairs, each taking 14 s or more against its 20 s timeout. On every pair
+of the benchmark AtomMapper gave the same mapping, up to symmetry, whichever molecule came
+first; LOMAP did not on 0.4-1.2% of them.
 [benchmarks/README.md](https://github.com/craabreu/atommapper/blob/main/benchmarks/README.md)
 has the method, the numbers and where the two disagree.
 

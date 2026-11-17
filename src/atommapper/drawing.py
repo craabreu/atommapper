@@ -7,9 +7,10 @@ change (element, charge, order, stereo) are marked on both, a changed stereo ele
 its label on each side. A changed hydrogen count is not marked: a bond that forms or
 breaks at the atom already shows it. The marks are light tints under the structure, of
 three colors of the Okabe-Ito palette chosen to stay apart under deuteranopia, protanopia
-and tritanopia (OKLab distance at least 14 under each, as the dataviz palette validator
-measures, and at least 18 with full color vision). A legend under the panels counts, for
-atoms and for bonds apart, what is kept, removed, added and changed.
+and tritanopia: their OKLab distance (times 100) is at least 14 between any two under each,
+simulated as Machado, Oliveira and Fernandes (2009) do at full severity, and at least 18
+with full color vision. A legend under the panels counts, for atoms and for bonds apart,
+what is kept, removed, added and changed.
 """
 
 from pathlib import Path
@@ -35,7 +36,9 @@ def _rgb(code: str) -> Color:
 
 def _tint(color: Color, white: float) -> Color:
     """``color`` mixed with a fraction ``white`` of white, light enough to sit under bonds
-    and labels (dark ink on each tint below keeps a contrast of at least 5:1)."""
+    and labels: the legend's dark gray text (``_INK``) keeps a WCAG contrast of at least 5:1
+    on each tint below, and black bonds more. RDKit's colored atom labels (red oxygen, blue
+    nitrogen) keep less, down to about 2:1 on the vermillion tint."""
     red, green, blue = (c + (1 - c) * white for c in color)
     return (red, green, blue)
 
