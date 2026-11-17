@@ -41,10 +41,14 @@ the figure shows only the latter.
 
 ![Fraction of pairs taking at least a given time, log-log: AtomMapper's curves fall off below a second, LOMAP's run on to its 20 s timeout](timing.png)
 
-AtomMapper is 1.1-2.4 times faster at the median and takes at most 3.8 s on any pair.
-LOMAP's slow tail comes from its MCS search: of the 1,058 FEP and 6,000 AZ mappings in each
-element mode, it reached the 20 s timeout on 9 and 27 FEP ones (elements free and fixed)
-and on 55 and 80 AZ ones, and LOMAP then goes on with the MCS found so far.
+Mapping a whole set of pairs, as a network planner does, takes AtomMapper 17-103 times
+less time than LOMAP: 19 s against 392 s for the FEP mappings with elements free and 9 s
+against 964 s with elements fixed, and 186 s against 3,246 s and 68 s against 4,158 s for
+the AZ ones. Half of LOMAP's time goes to its slowest 1-2% of mappings and about 90% to the
+8-11% that take it more than a second; 35-57% goes to those whose MCS search reached the
+20 s timeout: 9 and 27 of the 1,058 FEP mappings (elements free and fixed) and 55 and 80 of
+the 6,000 AZ ones. On a typical pair the difference is small, 1.1-2.4 times at the median,
+and AtomMapper takes at most 3.8 s on any pair.
 
 ### Mappings
 
