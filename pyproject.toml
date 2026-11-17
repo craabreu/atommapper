@@ -41,5 +41,7 @@ target-version = "py311"
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# The docstring examples in src/ run as doctests with the test suite.
+testpaths = ["tests", "src"]
+addopts = ["--doctest-modules"]
 pythonpath = ["."]
