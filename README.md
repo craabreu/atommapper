@@ -71,9 +71,9 @@ counts what is kept, removed, added and changed, with atoms and bonds in separat
 - **Aligned.** Both panels share one scale and one origin, and the target is drawn with its
   kept atoms where the source has them, so a kept atom is at the same place in each panel.
 - **Marked.** Light tints under the structure show what leaves (vermillion, on the source),
-  what arrives (green, on the target), and which kept atoms and bonds change (blue, on
-  both): element, charge, bond order or stereo. The colors stay distinct under the common
-  forms of color blindness.
+  what arrives (sky blue, on the target), and which kept atoms and bonds change (yellow, on
+  both): element, charge, bond order or stereo. The three colors stay apart under
+  deuteranopia, protanopia and tritanopia, and the legend names each one.
 - **Stereo.** An inverted centre carries its label on each side, (R) and (S), and an
   inverted double bond (E) and (Z). Every double bond is drawn with the geometry the
   molecule has, even when that moves kept atoms away from the source's positions.
