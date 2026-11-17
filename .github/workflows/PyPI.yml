@@ -1,11 +1,17 @@
 name: PyPI
 
 # Builds the wheels and the sdist on every published release and uploads them to PyPI
-# through trusted publishing (no token). Running it by hand builds everything and uploads
-# nothing, as a dry run.
+# through trusted publishing (no token). On a pull request that touches the build, or run
+# by hand, it builds everything and uploads nothing, as a dry run. The upload step checks
+# the metadata (twine check) before uploading.
 on:
   release:
     types: [published]
+  pull_request:
+    paths:
+      - ".github/workflows/PyPI.yml"
+      - "pyproject.toml"
+      - "rust/**"
   workflow_dispatch:
 
 jobs:
