@@ -216,6 +216,16 @@ This is not OpenFE's LOMAP. It maps no hydrogens and computes no similarity scor
 stereo rule is stricter. It applies the rules during its search, where LOMAP trims one
 maximum common substructure after choosing it.
 
+## Compared with LOMAP
+
+On the 529 pairs of the free energy networks of the protein-ligand benchmark and on 3,000
+AstraZeneca matched pairs, atommapper finds the same mapping as LOMAP, up to symmetry, for
+95-98% of the pairs, and never keeps fewer bonds than LOMAP among the mappings that satisfy
+the rules. It is 1.1-2.4 times faster at the median and has no slow tail: the mean time
+per pair is 17-106 times lower, because LOMAP's MCS search runs into its 20 s timeout on
+about 1-3% of the pairs. [benchmarks/README.md](https://github.com/craabreu/atommapper/blob/main/benchmarks/README.md)
+has the method, the numbers and how to run it.
+
 ## How it works
 
 1. **Fragments.** A Rust engine (Koch's algorithm on the bond-pair compatibility graph)
