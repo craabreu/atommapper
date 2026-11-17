@@ -33,8 +33,9 @@ Requires **Python 3.11 or later**.
 python -m pip install atommapper
 ```
 
-RDKit, NetworkX, and SciPy are installed as dependencies. If pip builds from source
-instead of installing a compatible wheel, you also need a
+Wheels are available for Linux (x86_64 and aarch64), macOS (Intel and Apple silicon), and
+Windows (x64). RDKit, NetworkX, and SciPy are installed as dependencies. If pip builds from
+source instead of installing a compatible wheel, you also need a
 [Rust toolchain](https://rustup.rs). For an editable checkout, see [Development](#development).
 
 ## Quick start

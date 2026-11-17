@@ -31,7 +31,7 @@ atommapper = "atommapper.cli:main"
 manifest-path = "rust/Cargo.toml"
 python-source = "src"
 module-name = "atommapper._mces"
-features = ["python", "pyo3/extension-module"]
+features = ["python", "pyo3/extension-module", "pyo3/abi3-py311"]
 
 [tool.ruff]
 line-length = 100
