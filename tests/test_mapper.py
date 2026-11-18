@@ -6,6 +6,7 @@ stereocentre is inverted; hydrogens implicit. With element_change (the default),
 and bond orders may change, each change counting one.
 """
 
+import math
 import random
 import time
 
@@ -168,37 +169,56 @@ def test_a_mirrored_core_is_kept_when_inversions_are_allowed():
     assert result.metadata["size"] == 26 + 2
 
 
-# Pairs of CHEMBL2034 ligands (MoleculeACE) whose largest common fragments hold a mirrored
-# core: the strict trim cuts one down to a single atom, the seed of the best mapping. With
-# inversions allowed that trim drops nothing, and before the strict seeds were added the
-# search ended at sizes 90, 76, 71 and 89.
-CHEMBL2034 = [
+# Synthetic pairs, put together from generic rings, linkers and end groups. Both molecules
+# of a pair hold the same ring with two neighbouring stereo centres, mirrored, and little
+# else that can be kept. Paired atom for atom, the ring keeps both centres, inverted. Turned
+# over, with one centre on a ring CH2 of the other molecule, it keeps as many atoms and
+# inverts nothing: the best mapping under either rule (the exhaustive optimum of
+# ``tests._exhaustive.lomap_optimum`` too). Seeded only with the fragments as they come,
+# the search with inversions allowed keeps the first pairing and ends two changes larger
+# (77, 88, 100 and 100); the strict trims, which cut the inverted centres out of those
+# fragments, are the seeds that lead to the second.
+#
+# The sizes follow from the molecules: the atoms and bonds of both, less twice the atoms
+# and bonds kept, plus the kept atoms that change element.
+MIRRORED_RINGS = [
     (
-        "Cc1cccc([C@@](C)(O)[C@H]2CCCC3=Cc4c(-c5ccc(F)cc5)ncn4C[C@@]32C)c1",
-        "Cc1ccc(S(=O)(=O)N2CCC3=Cc4c(cnn4-c4ccc(F)cc4)C[C@]3(C(=O)c3ccccn3)C2)cc1",
-        60,
+        # A 3,4-disubstituted oxane. 14 + 15 and 34 + 38 atoms and bonds; the ring and the
+        # carbon on it are kept (7 atoms, 7 bonds): 101 - 28 = 73. Turned over, the ring
+        # oxygen and a ring carbon change places: two changes of element.
+        "N#C[C@H]1CCOC[C@@H]1c1ccc(o1)F",
+        "c1ccccc1[C@@H]1CCOC[C@H]1Cc1cccc(c1)C(=O)Nc1cccc(c1)N1CCOCC1",
+        75,
     ),
     (
-        "COC[C@]12Cc3cnn(-c4ccc(F)cc4)c3C=C1CCN(S(=O)(=O)c1ccccc1)C2",
-        "C[C@@](O)(c1ccccn1)[C@H]1CCCC2=Cc3c(-c4ccc(F)cc4)ncn3C[C@@]21C",
-        45,
+        # The same oxane. 16 + 17 and 39 + 43; the ring and two atoms of the chain on it
+        # are kept (8 atoms, 8 bonds): 115 - 32 = 83. Three changes of element: the ring
+        # oxygen and a ring carbon again, and the hydroxyl oxygen onto a carbon.
+        "O=C(O)[C@H]1CCOC[C@@H]1C1CC(C1)N(C)C",
+        "C1CC1[C@@H]1CCOC[C@H]1CCc1ncc(cn1)C(=O)c1ccc(nc1)S(=O)(=O)Nc1ccc(nc1)C(C)(C)C",
+        86,
     ),
     (
-        "C=C1C[C@H](C)C[C@@H](C)[C@@H]1Cc1cc(OC)c(Br)cc1O",
-        "Cc1ccccc1S(=O)(=O)N1CCC2=Cc3c(cnn3-c3ccc(F)cc3)C[C@]2(C(=O)c2ccccn2)C1",
-        70,
+        # A 1,2-disubstituted cyclohexane. 25 + 27 and 35 + 39; the ring and the carbon on
+        # it are kept (7 atoms, 7 bonds), all carbon: 126 - 28 = 98.
+        "CC(C)n1cc(cn1)CC[C@H]1CCCC[C@@H]1c1ccc(o1)C(C)(C)C",
+        "c1ccccc1[C@@H]1CCCC[C@H]1Cc1ccc2nc(ccc2c1)CCCc1ccc(cc1)C(N)=O",
+        98,
     ),
     (
-        "C[C@@](O)(c1ccncc1)[C@H]1CCCC2=Cc3c(-c4ccc(F)cc4)ncn3C[C@@]21C",
-        "O=C(c1nccs1)[C@]12Cc3cnn(-c4ccc(F)cc4)c3C=C1CCN(S(=O)(=O)c1ccc(Cl)c(Cl)c1)C2",
-        58,
+        # The same cyclohexane, and a third centre far from it. 40 + 45 and 21 + 23; the
+        # ring and two atoms of the chain on it are kept (8 atoms, 8 bonds): 129 - 32 = 97.
+        # One change of element: a chain carbon onto the hydroxyl oxygen.
+        "C1CC1[C@H]1CCCC[C@@H]1CCN1CCC(CC1)NC(=O)c1nc2ccc(cc2[nH]1)[C@@H](O)c1ncc(cn1)C(N)=O",
+        "O=C(O)[C@@H]1CCCC[C@H]1c1cccc(c1)c1ccncc1",
+        98,
     ),
 ]
 
 
 @pytest.mark.parametrize(
     ("source", "target"),
-    [pair[:2] for pair in CHEMBL2034] + [MIRRORED_CORE, ("CC/C=C/CC", "CC/C=C\\CC")],
+    [pair[:2] for pair in MIRRORED_RINGS] + [MIRRORED_CORE, ("CC/C=C/CC", "CC/C=C\\CC")],
 )
 def test_allowing_inversion_never_makes_the_change_larger(source, target):
     # every mapping the rule accepts is accepted when inversions are allowed, and costs the
@@ -208,7 +228,7 @@ def test_allowing_inversion_never_makes_the_change_larger(source, target):
     assert allowed.metadata["size"] <= strict.metadata["size"]
 
 
-@pytest.mark.parametrize(("source", "target", "size"), CHEMBL2034)
+@pytest.mark.parametrize(("source", "target", "size"), MIRRORED_RINGS)
 def test_an_allowed_mapping_without_inversion_is_the_strict_one(source, target, size):
     strict = map_atoms(source, target)
     allowed = map_atoms(source, target, allow_stereo_inversion=True)
@@ -344,6 +364,7 @@ def test_a_seed_that_runs_out_of_its_share_retries_with_what_the_others_left():
 # --- review fixes (2026-11-14) -------------------------------------------------------
 
 from atommapper.adapter import build_view, parse  # noqa: E402
+from atommapper.clock import REFERENCE_RATES, VirtualClock  # noqa: E402
 from atommapper.coloring import coloring  # noqa: E402
 from atommapper.cost import change_size  # noqa: E402
 from atommapper.mapper import _bridges, _color, _connected_fragments, _Rules  # noqa: E402
@@ -577,7 +598,8 @@ def _views(source, target, element_change=True):
 @pytest.mark.parametrize(("source", "target"), PAIRS_FOR_RULES)
 def test_every_trimmed_piece_satisfies_the_rules(source, target):
     s, t, rules = _views(source, target)
-    fragments, *_ = _connected_fragments(s, t, rules, Settings(), _color, 10**7)
+    clock = VirtualClock(math.inf, REFERENCE_RATES, 1.0, 0.0)
+    fragments, *_ = _connected_fragments(s, t, rules, Settings(), _color, 10**7, clock)
     assert fragments
     for fragment in fragments:
         for piece in rules.trimmed_pieces(fragment):

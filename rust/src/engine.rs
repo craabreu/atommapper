@@ -14,7 +14,16 @@
 //! and also while those are built); a search the clock stopped depends on machine speed
 //! and load and says so (`Stop::Time`). Ties are broken by input order: callers that want results
 //! independent of atom numbering pass atoms and bonds in a canonical order.
+//!
+//! A step does not cost the same on every pair (it reads bitsets as long as the compatibility
+//! graph is large), so the engine also counts its work in units that do (`Work`: the steps
+//! and what they read) and stops when their cost, at the caller's prices (`WorkCosts`),
+//! passes `FragmentLimits::max_work` (`Stop::Work`). That stop reads no clock: like the
+//! step budget, it returns the same result on every machine. The set-up of the
+//! compatibility graph is charged before it is built, so a pair whose set-up alone costs
+//! more than the limit stops at once.
 
+use std::cell::Cell;
 use std::collections::BTreeSet;
 use std::time::Instant;
 
@@ -68,6 +77,49 @@ pub enum Stop {
     /// The deadline passed; the fragments are those found so far, and depend on machine
     /// speed and load.
     Time,
+    /// The work limit was passed (`FragmentLimits::max_work`); the fragments are those
+    /// found so far, the same on every machine.
+    Work,
+}
+
+/// The engine's work, in units whose cost does not depend on the pair.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Work {
+    /// Pairs of vertices of the compatibility graph whose relation the set-up reads.
+    pub relation_pairs: u64,
+    /// Steps of the enumeration: what a call of the recursion costs whatever it reads.
+    pub steps: u64,
+    /// Bitset words (and single vertices) the enumeration reads.
+    pub words: u64,
+    /// Bonds of the cliques split into consistent parts, scored or turned into fragments.
+    pub leaf_bonds: u64,
+}
+
+/// The price of each unit of `Work`, in the caller's unit (AtomMapper: picoseconds of its
+/// virtual clock). All zero by default: the work is counted but costs nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WorkCosts {
+    pub relation_pair: u64,
+    pub step: u64,
+    pub word: u64,
+    pub leaf_bond: u64,
+}
+
+impl Work {
+    /// The cost of the work at `costs`, saturating.
+    pub fn cost(&self, costs: &WorkCosts) -> u64 {
+        (self.relation_pairs.saturating_mul(costs.relation_pair))
+            .saturating_add(self.steps.saturating_mul(costs.step))
+            .saturating_add(self.words.saturating_mul(costs.word))
+            .saturating_add(self.leaf_bonds.saturating_mul(costs.leaf_bond))
+    }
+
+    fn add(&mut self, other: Work) {
+        self.relation_pairs += other.relation_pairs;
+        self.steps += other.steps;
+        self.words += other.words;
+        self.leaf_bonds += other.leaf_bonds;
+    }
 }
 
 /// The atom shared by two bonds, if any.
@@ -245,6 +297,11 @@ pub struct FragmentLimits {
     pub best_only: bool,
     /// Wall-clock limit, read every `CLOCK_EVERY` steps; `None` never reads the clock.
     pub deadline: Option<Instant>,
+    /// Limit on the cost of the work at `costs`, checked at every step and, for the
+    /// set-up, before it starts; `None` for no limit.
+    pub max_work: Option<u64>,
+    /// The price of each unit of work.
+    pub costs: WorkCosts,
     /// With rings: a trimmed score some common fragment is known to reach (from a search on
     /// finer labels, say). The search starts from it, so it cuts branches that cannot
     /// reach it from the start; the fragments listed are the same, since only those of the
@@ -264,6 +321,8 @@ impl Default for FragmentLimits {
             min_bonds: 3,
             best_only: false,
             deadline: None,
+            max_work: None,
+            costs: WorkCosts::default(),
             known_score: 0,
         }
     }
@@ -300,6 +359,8 @@ pub struct Fragments {
     pub pairs: usize,
     /// With rings, the best trimmed score found (or `known_score`, if none beat it).
     pub best_score: usize,
+    /// The work done (and, when the set-up alone passed the limit, the set-up not done).
+    pub work: Work,
 }
 
 impl BitMatrix {
@@ -636,6 +697,14 @@ struct Koch<'a> {
     bonds2: usize,
     max_steps: u64,
     deadline: Option<Instant>,
+    max_work: Option<u64>,
+    costs: WorkCosts,
+    /// The cost of the work done before the enumeration (the set-up).
+    base_cost: u64,
+    /// Bitset words read so far (`Work::words`); a cell, since the helpers that count
+    /// borrow the search shared.
+    words_read: Cell<u64>,
+    leaf_bonds: u64,
     /// Steps between two readings of the clock (`clock_every`).
     every: u64,
     max_raw: usize,
@@ -646,6 +715,8 @@ struct Koch<'a> {
     stopped: bool,
     /// Stopped by the deadline, not the step budget.
     timed: bool,
+    /// Stopped by the work limit.
+    worked: bool,
     capped: bool,
     /// The best-only lists dropped a tie of the current best size or score.
     raw_full: bool,
@@ -660,6 +731,29 @@ fn count_bits(bits: &[u64]) -> usize {
 }
 
 impl Koch<'_> {
+    /// Count `n` bitset words read.
+    #[inline]
+    fn read(&self, n: usize) {
+        self.words_read.set(self.words_read.get() + n as u64);
+    }
+
+    /// The work of the enumeration so far.
+    fn work(&self) -> Work {
+        Work {
+            relation_pairs: 0,
+            steps: self.steps,
+            words: self.words_read.get(),
+            leaf_bonds: self.leaf_bonds,
+        }
+    }
+
+    /// Whether the cost of the work so far, the set-up included, is past the limit.
+    #[inline]
+    fn over_work(&self) -> bool {
+        self.max_work
+            .is_some_and(|max| self.base_cost.saturating_add(self.work().cost(&self.costs)) > max)
+    }
+
     /// One call of Koch's recursion: `p` extends the clique through a shared atom, `d`
     /// holds vertices compatible with every member but not yet connected to one, `s` holds
     /// vertices whose cliques were listed from an earlier root.
@@ -673,11 +767,17 @@ impl Koch<'_> {
             self.stopped = true;
             return;
         }
+        if self.over_work() {
+            self.stopped = true;
+            self.worked = true;
+            return;
+        }
         if late(self.steps, self.every, self.deadline) {
             self.stopped = true;
             self.timed = true;
             return;
         }
+        self.read(2 * self.words);
         let (np, ns) = (count_bits(&p), count_bits(&s));
         if np == 0 {
             if ns == 0 && clique.len() >= self.min_bonds {
@@ -689,6 +789,7 @@ impl Koch<'_> {
                     }
                     return;
                 }
+                self.leaf_bonds += clique.len() as u64;
                 let parts = (self.parts)(clique);
                 if parts.len() != 1 || parts[0].len() != clique.len() {
                     self.split += 1;
@@ -697,6 +798,7 @@ impl Koch<'_> {
                 // on: a better fragment clears it.
                 for part in parts {
                     if let Some(score) = self.scorer {
+                        self.leaf_bonds += part.len() as u64;
                         let s = score(&part);
                         if s > 0 && s >= self.best_score {
                             if s > self.best_score {
@@ -744,6 +846,7 @@ impl Koch<'_> {
         // still be reached: the closure is most of a node's cost, and the reached part is
         // a subset, so what the first test cuts the second would too.
         let mut d = d;
+        self.read(self.words);
         if clique.len() + np + count_bits(&d) < bound || clique.len() + self.room(&p, &d) < bound {
             return;
         }
@@ -753,6 +856,7 @@ impl Koch<'_> {
             for w in 0..self.words {
                 d[w] &= reach[w];
             }
+            self.read(2 * self.words);
             let after = count_bits(&d);
             if after < before
                 && (clique.len() + np + after < bound || clique.len() + self.room(&p, &d) < bound)
@@ -766,11 +870,14 @@ impl Koch<'_> {
             p[u >> 6] &= !(1u64 << (u & 63));
             let (mut p2, mut d2, mut s2) = (p.clone(), d.clone(), s.clone());
             let mut reachable = Vec::new();
+            let mut tested = 0;
             for_each_bit(&d2, |v| {
+                tested += 1;
                 if self.c.get(u, v) {
                     reachable.push(v);
                 }
             });
+            self.read(5 * self.words + tested);
             for v in reachable {
                 d2[v >> 6] &= !(1u64 << (v & 63));
                 if self.done(v) {
@@ -804,7 +911,9 @@ impl Koch<'_> {
         let mut next = vec![0u64; words];
         loop {
             next.fill(0);
+            self.read(3 * words);
             for_each_bit(&frontier, |v| {
+                self.read(words);
                 let row = self.c.row(v);
                 for w in 0..words {
                     next[w] |= row[w] & within[w] & !seen[w];
@@ -837,6 +946,7 @@ impl Koch<'_> {
                 while word != 0 {
                     let u = w0 * 64 + word.trailing_zeros() as usize;
                     word &= word - 1;
+                    self.read(self.words);
                     let (cr, dr) = (self.c.row(u), self.d.row(u));
                     let n: usize = (0..self.words)
                         .map(|w| (p[w] & !(cr[w] | dr[w])).count_ones() as usize)
@@ -851,6 +961,7 @@ impl Koch<'_> {
                 }
             }
         }
+        self.read(3 * self.words);
         let Some(u) = pivot else { return p.to_vec() };
         let (cr, dr) = (self.c.row(u), self.d.row(u));
         let away: Vec<u64> = (0..self.words).map(|w| d[w] & !(cr[w] | dr[w])).collect();
@@ -876,8 +987,10 @@ impl Koch<'_> {
         let mut seen2 = vec![false; self.bonds2];
         let mut count1 = vec![0usize; self.classes];
         let mut count2 = vec![0usize; self.classes];
+        self.read(2 * self.words);
         for bits in [p, d] {
             for_each_bit(bits, |x| {
+                self.read(1);
                 let k = self.class[x];
                 if !seen1[self.vi[x]] {
                     seen1[self.vi[x]] = true;
@@ -958,10 +1071,26 @@ fn fragments_impl(
     if n == 0 {
         return Fragments::default();
     }
+    // The set-up reads the relation of every two vertices: its work is known before it
+    // starts, and a pair whose set-up alone passes the work limit is not set up.
+    let setup = Work {
+        relation_pairs: (n as u64) * (n as u64 - 1) / 2,
+        ..Work::default()
+    };
+    let base_cost = setup.cost(&limits.costs);
+    if limits.max_work.is_some_and(|max| base_cost > max) {
+        return Fragments {
+            stop: Some(Stop::Work),
+            pairs: n,
+            work: setup,
+            ..Fragments::default()
+        };
+    }
     let Some((c, d)) = build_relations(&vi, &vj, g1, g2, limits.deadline) else {
         return Fragments {
             stop: Some(Stop::Time),
             pairs: n,
+            work: setup,
             ..Fragments::default()
         };
     };
@@ -1018,12 +1147,18 @@ fn fragments_impl(
         bonds2: g2.bonds.len(),
         max_steps: limits.max_steps,
         deadline: limits.deadline,
+        max_work: limits.max_work,
+        costs: limits.costs,
+        base_cost,
+        words_read: Cell::new(0),
+        leaf_bonds: 0,
         every: clock_every(n),
         max_raw: limits.max_fragments,
         root: 0,
         steps: 0,
         stopped: false,
         timed: false,
+        worked: false,
         capped: false,
         raw_full: false,
         scored_full: false,
@@ -1033,6 +1168,7 @@ fn fragments_impl(
     for u in 0..n {
         koch.root = u;
         let (mut p, mut dd, mut s) = (vec![0u64; words], vec![0u64; words], vec![0u64; words]);
+        koch.read(n);
         for v in 0..n {
             if c.get(u, v) {
                 if v < u {
@@ -1057,31 +1193,45 @@ fn fragments_impl(
         && !koch.capped
     {
         // No part reached the known score: search again without it (`known_score`).
+        let mut work = setup;
+        work.add(koch.work());
         let again = FragmentLimits {
             known_score: 0,
             max_steps: limits.max_steps - koch.steps,
+            max_work: limits
+                .max_work
+                .map(|max| max.saturating_sub(work.cost(&limits.costs))),
             ..limits
         };
         let mut out = fragments_impl(g1, g2, rings, again);
         out.steps += koch.steps;
+        out.work.add(work);
         return out;
     }
     let mut out = Fragments {
         steps: koch.steps,
-        stop: koch
-            .stopped
-            .then_some(if koch.timed { Stop::Time } else { Stop::Steps }),
+        stop: koch.stopped.then_some(if koch.timed {
+            Stop::Time
+        } else if koch.worked {
+            Stop::Work
+        } else {
+            Stop::Steps
+        }),
         truncated: koch.capped || koch.raw_full || koch.scored_full,
         split: koch.split,
         pairs: n,
         best_score: koch.best_score,
+        work: setup,
         ..Fragments::default()
     };
+    out.work.add(koch.work());
+    // What follows the enumeration is counted too; nothing stops it.
     let mut kept: BTreeSet<Vec<usize>> = BTreeSet::new();
     if rings.is_some() {
         kept.extend(koch.scored.iter().map(|(part, _)| part.clone()));
     }
     for clique in &koch.raw {
+        out.work.leaf_bonds += clique.len() as u64;
         let mut sorted = clique.clone();
         sorted.sort_unstable();
         if star_triple(&sorted, &vi, &vj, g1, g2, &tri1, &tri2).is_some() {
@@ -1109,6 +1259,7 @@ fn fragments_impl(
                 .iter()
                 .any(|b| b.len() > a.len() && a.iter().all(|x| b.binary_search(x).is_ok()))
     };
+    out.work.words += (kept.len() * kept.len()) as u64;
     let mut maximal: Vec<&Vec<usize>> = kept.iter().filter(|a| !inside(a)).collect();
     if limits.best_only {
         let largest = maximal.iter().map(|a| a.len()).max().unwrap_or(0);
@@ -1119,6 +1270,7 @@ fn fragments_impl(
             out.truncated = true;
             break;
         }
+        out.work.leaf_bonds += part.len() as u64;
         let bonds: Vec<(usize, usize)> = part.iter().map(|&x| (vi[x], vj[x])).collect();
         match atom_map(&bonds, g1, g2) {
             Some(atoms) => out.fragments.push(Fragment { bonds, atoms }),
@@ -1491,6 +1643,81 @@ mod tests {
         let out = maximal_fragments(&g1, &g2, far);
         assert_eq!((out.stop, out.steps), (None, full.steps));
         assert_eq!(out.fragments, full.fragments);
+    }
+
+    #[test]
+    fn the_work_limit_stops_the_enumeration_at_the_same_step_every_time() {
+        let (g1, g2) = (ring(30, 6), ring(30, 6));
+        let costs = WorkCosts {
+            relation_pair: 3,
+            step: 7,
+            word: 2,
+            leaf_bond: 5,
+        };
+        let free = FragmentLimits {
+            costs,
+            ..all_limits(3)
+        };
+        let full = maximal_fragments(&g1, &g2, free);
+        // Without a limit the work is counted and stops nothing.
+        assert!(full.stop.is_none());
+        assert_eq!(full.work.relation_pairs, 900 * 899 / 2);
+        assert_eq!(full.work.steps, full.steps);
+        assert!(full.work.words > 0 && full.work.leaf_bonds > 0);
+        let half = FragmentLimits {
+            max_work: Some(full.work.cost(&costs) / 2),
+            ..free
+        };
+        let out = maximal_fragments(&g1, &g2, half);
+        assert_eq!(out.stop, Some(Stop::Work));
+        assert!(out.steps > 0 && out.steps < full.steps);
+        // The stop reads no clock: the same steps, work and fragments again.
+        let again = maximal_fragments(&g1, &g2, half);
+        assert_eq!((again.stop, again.steps), (out.stop, out.steps));
+        assert_eq!(again.work, out.work);
+        assert_eq!(again.fragments, out.fragments);
+        // A limit the search does not reach changes nothing.
+        let enough = FragmentLimits {
+            max_work: Some(full.work.cost(&costs)),
+            ..free
+        };
+        let out = maximal_fragments(&g1, &g2, enough);
+        assert_eq!((out.stop, out.steps), (None, full.steps));
+        assert_eq!(out.fragments, full.fragments);
+    }
+
+    #[test]
+    fn a_set_up_that_costs_more_than_the_work_limit_is_not_done() {
+        // 10,000 bond pairs: the set-up reads 49,995,000 relations, known beforehand.
+        let (g1, g2) = (ring(100, 6), ring(100, 6));
+        let limits = FragmentLimits {
+            max_work: Some(49_994_999),
+            costs: WorkCosts {
+                relation_pair: 1,
+                ..WorkCosts::default()
+            },
+            ..FragmentLimits::default()
+        };
+        let start = Instant::now();
+        let out = maximal_fragments(&g1, &g2, limits);
+        assert_eq!(
+            (out.stop, out.steps, out.pairs),
+            (Some(Stop::Work), 0, 10_000)
+        );
+        assert_eq!(out.work.relation_pairs, 49_995_000);
+        assert_eq!((out.work.words, out.work.leaf_bonds), (0, 0));
+        assert!(start.elapsed().as_millis() < 100);
+        // One unit more and the set-up is done: the search starts.
+        let out = maximal_fragments(
+            &g1,
+            &g2,
+            FragmentLimits {
+                max_work: Some(49_995_000),
+                max_steps: 10,
+                ..limits
+            },
+        );
+        assert_eq!((out.stop, out.steps), (Some(Stop::Steps), 10));
     }
 
     #[test]

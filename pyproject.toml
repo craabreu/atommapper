@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "atommapper"
-version = "0.1.0"
+version = "0.2.0"
 description = "Fast atom mapping for related molecules, with mapped SMILES and structured atom and bond changes"
 readme = "README.md"
 license = "MIT"

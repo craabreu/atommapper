@@ -48,7 +48,7 @@ PAIRS = [
 
 @pytest.mark.parametrize(("g1", "g2"), PAIRS)
 def test_best_only_finds_the_largest_connected_fragment(g1, g2):
-    fragments, _steps, stop, truncated, _split, _pairs, _score = connected(g1, g2)
+    fragments, _steps, stop, truncated, _split, _pairs, _score, _work = connected(g1, g2)
     assert stop is None and not truncated
     expected = brute_connected(g1, g2)
     assert {len(bonds) for _atoms, bonds in fragments} == {expected}

@@ -1,7 +1,10 @@
 """Budgets and limits of a mapping call."""
 
+import dataclasses
 import math
 from dataclasses import dataclass, fields
+
+from .clock import reference_id
 
 _COUNTS = {
     # field: smallest value allowed
@@ -13,16 +16,17 @@ _COUNTS = {
     "max_alternatives": 1,
 }
 _OPTIONAL_COUNTS = {"k_seeds": 1}
-_SECONDS = ("time_limit_s", "global_budget_s")
+_SECONDS = ("work_limit", "global_budget_s")
 
 
 @dataclass(frozen=True)
 class Settings:
-    """Configure the work budgets, time limit, and candidate caps for ``map_atoms``.
+    """Configure the work budgets, work limit, and candidate caps for ``map_atoms``.
 
     Pass an instance as ``map_atoms(source, target, settings=Settings(...))``. Defaults
-    suit drug-like molecular pairs. Work budgets give reproducible stopping points
-    provided the wall-clock limit does not intervene. A limit can return a partial
+    suit drug-like molecular pairs. The work budgets and the work limit, which is counted
+    in work and not read from a clock (``atommapper.clock``), give reproducible stopping
+    points provided the wall-clock guard does not intervene. A limit can return a partial
     result with status "timed_out"; the coarse-pass cap is part of the normal search.
 
     Counts must be integers, and time budgets must be nonnegative numbers. Invalid
@@ -33,12 +37,31 @@ class Settings:
     node_budget: int = 1_000_000
     """Total branch-and-bound nodes, shared across seeds. Exhaustion sets status to
     "timed_out" and includes "nodes" in metadata["budget"]["stopped_by"]."""
-    time_limit_s: float = 60.0
-    """Wall-clock search limit, measured from the start of the call. Fragment search,
-    seeding, and refinement check it periodically. Parsing, stereo perception, and result
-    assembly are not interrupted, so this is not a hard process deadline. The optional
-    global check has its own additional budget. Expiry sets status to "timed_out" and
-    includes "time" in metadata["budget"]["stopped_by"]."""
+    work_limit: float = 60.0
+    """Search limit on the work of the call, in virtual seconds of the reference clock
+    (``atommapper.clock.REFERENCE_RATES``). No clock is read, so the same calls stop on
+    every machine and under any load; results made on two machines are comparable when the
+    limit is the same.
+
+    In wall-clock terms, a virtual second is about one second of the reference machine (an
+    AMD Ryzen Threadripper PRO 5975WX running eight calls at a time): a call's wall time was
+    0.76 to 1.63 times its virtual time for 98% of the calls the rates were fitted on. With
+    all 32 cores of that machine busy, a virtual second took about 1.8 wall seconds. On
+    another machine the ratio follows its speed and load: ``atommapper.calibrate`` (or
+    ``atommapper calibrate``) measures it and suggests the limit that takes a given wall
+    time, at the cost of exact comparability with results made at another limit.
+
+    Fragment search, seeding, and refinement check the limit at every step; a pair whose
+    fragment-search set-up alone costs more stops before it. Parsing, stereo perception,
+    and result assembly are not interrupted. The optional global check has its own additional
+    budget. Expiry sets status to "timed_out" and includes "work" in
+    metadata["budget"]["stopped_by"]."""
+    wall_guard_factor: float = 10.0
+    """The wall-clock guard, as a multiple of ``work_limit`` in real seconds from the
+    start of the call. It is a safety net for a machine much slower than the reference
+    one; a call it stops depends on machine speed and load, has status "timed_out", and
+    includes "time" in metadata["budget"]["stopped_by"]. Infinity turns the guard off; zero
+is rejected, since it would stop every call at once."""
     fragment_steps: int = 20_000_000
     """Total fragment-search steps across all passes. Exhaustion sets status to
     "timed_out" and includes "steps" in metadata["budget"]["stopped_by"]."""
@@ -57,7 +80,9 @@ class Settings:
     Zero disables it. The check uses unconstrained graph edit distance under the same
     objective. If it finishes and matches a completed mapping's cost, optimality becomes
     "optimal"; otherwise no global proof is established. See metadata["global_check"]
-    for the bound and gap. Intended for small molecules and validation."""
+    for the bound and gap. Intended for small molecules and validation. Unlike
+    ``work_limit``, this budget is read from the wall clock, so whether the check finishes,
+    and with it ``optimality``, can depend on the machine and its load."""
     max_fragments: int = 4096
     """Maximum number of common fragments retained. Truncation is recorded in
     metadata["fragment_search"]["truncated"] and can affect consistency under reversal."""
@@ -67,9 +92,21 @@ class Settings:
     max_alternatives: int = 16
     """Maximum tied mappings retained per seed for tie-breaking. When capped,
     metadata["ambiguity"]["lower_bound"] indicates that its count may be incomplete."""
+    reference_clock: str = dataclasses.field(default_factory=reference_id)
+    """The name of the rates the virtual clock runs on (``atommapper.clock.CLOCK_ID``).
+    Not a setting to choose: the rates are a constant of the package, and any other name
+    is rejected. It is here so that whatever identifies results by their settings, a cache
+    key for one, changes when the rates do; and it is accepted, so that settings saved
+    with a result (``metadata["settings"]``) can be passed back, and settings saved under
+    other rates fail instead of giving other results."""
 
     def __post_init__(self) -> None:
         """Reject a bad value when the settings are built, not deep inside a search."""
+        if self.reference_clock != reference_id():
+            raise ValueError(
+                f"reference_clock {self.reference_clock!r} is not this package's clock "
+                f"{reference_id()!r}: settings saved under other rates give other results"
+            )
         for field in fields(self):
             name, value = field.name, getattr(self, field.name)
             if name in _COUNTS or (name in _OPTIONAL_COUNTS and value is not None):
@@ -83,3 +120,8 @@ class Settings:
                     raise TypeError(f"{name} must be a number of seconds, got {value!r}")
                 if math.isnan(value) or value < 0:
                     raise ValueError(f"{name} must not be negative or NaN, got {value}")
+            elif name == "wall_guard_factor":
+                if isinstance(value, bool) or not isinstance(value, int | float):
+                    raise TypeError(f"{name} must be a number, got {value!r}")
+                if math.isnan(value) or value <= 0:
+                    raise ValueError(f"{name} must be positive, got {value}")

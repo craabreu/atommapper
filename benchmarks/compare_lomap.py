@@ -115,7 +115,7 @@ def atommapper_map(
     source: str, target: str, element_change: bool, objective: str
 ) -> tuple[list[tuple[int, int]], str | None]:
     """The heavy-atom map, and the limits that stopped the search (None when it finished):
-    ``"time"`` among them means the clock stopped it."""
+    ``"time"`` among them means the wall-clock guard stopped it, ``"work"`` the work limit."""
     result = map_atoms(source, target, element_change=element_change, objective=objective)
     pairs = [(a.source_index, a.target_index) for a in result.mapping]
     return pairs, result.metadata["budget"]["stopped_by"]
@@ -170,7 +170,7 @@ def run_pair(args: tuple[int, dict[str, str]]) -> dict:
                 entry["timed_out"] = any(CANCELED)
             else:
                 entry["stopped_by"] = stopped_by
-                entry["timed_out"] = "time" in (stopped_by or "").split(",")
+                entry["timed_out"] = bool({"time", "work"} & set((stopped_by or "").split(",")))
             if error is None:
                 entry |= judged(source, target, pairs, element_change)
             record[f"{method}_{mode}"] = entry
@@ -341,10 +341,10 @@ def summary(paths: list[str]) -> str:
             for m in METHODS[1:]
         }
         lines += [
-            f"Errors: {errors}. Stopped by the clock (LOMAP's 20 s MCS timeout, AtomMapper's "
-            f"time limit): {clock}; AtomMapper stopped by a work budget: {budget}. Times are "
-            f"over all pairs; mappings are compared on the {len(ok)} pairs that all three "
-            f"mapped and that no clock stopped.",
+            f"Errors: {errors}. Stopped by a time or work limit (LOMAP's 20 s MCS timeout, "
+            f"AtomMapper's work limit or wall-clock guard): {clock}; AtomMapper stopped by a "
+            f"step or node budget: {budget}. Times are over all pairs; mappings are compared "
+            f"on the {len(ok)} pairs that all three mapped and that no limit stopped.",
             "",
         ]
         lines += ["| | LOMAP | AtomMapper (change) | AtomMapper (bonds) |", "|---|---|---|---|"]

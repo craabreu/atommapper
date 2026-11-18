@@ -82,7 +82,7 @@ def test_alignment_graph_keeps_isolated_vertices():
 def test_work_budget_by_default_with_a_long_clock_as_safety_net():
     settings = Settings()
     assert settings.node_budget > 0
-    assert settings.time_limit_s >= 60.0
+    assert settings.work_limit >= 60.0
     assert not hasattr(settings, "refine_budget_s")
     assert not hasattr(settings, "fragment_timeout_s")
 

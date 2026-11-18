@@ -10,6 +10,7 @@ import scipy
 
 from .adapter import MolView, raw_tag_agreement, write_reaction
 from .checks import run_checks
+from .clock import reference_id
 from .edits import EditScript, compute_edits
 from .numbering import Numbering, assign_identifiers
 from .settings import Settings
@@ -152,6 +153,7 @@ class MappingResult:
 def versions() -> dict[str, str]:
     return {
         "atommapper": version("atommapper"),
+        "clock": reference_id(),
         "rdkit": rdkit.__version__,
         "networkx": networkx.__version__,
         "scipy": scipy.__version__,

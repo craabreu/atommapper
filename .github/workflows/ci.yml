@@ -59,3 +59,23 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: pip install -e ".[test]"
       - run: python -m pytest -q
+
+  # The work limit's claim: the same calls stop with the same results on every machine.
+  # tests/test_determinism.py holds hashes made on x86_64 Linux with the RDKit pinned here;
+  # each platform the wheels are built for must reproduce them.
+  determinism:
+    name: determinism (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: dtolnay/rust-toolchain@stable
+      - run: pip install -e ".[test]" "rdkit==2026.9.2"
+      - run: python -c "import rdkit; assert rdkit.__version__ == '2026.09.2', rdkit.__version__"
+      - run: python -m pytest -q -rs tests/test_determinism.py

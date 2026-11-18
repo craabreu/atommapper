@@ -9,9 +9,9 @@ AtomMapper follows mapping constraints based on OpenFE's LOMAP: a connected core
 complete rings, and preserved stereochemistry by default. Its search engine is written
 in Rust, with a Python API and command-line interface.
 
-**In the included benchmarks, AtomMapper used 17–102× less total mapping time than
+**In the included benchmarks, AtomMapper used 17–101× less total mapping time than
 LOMAP's mapping step** across 3,529 molecular pairs. Most of the gain comes from avoiding
-LOMAP's slowest searches; the median per-pair speedup was 1.1–2.3×. With the bond-maximizing
+LOMAP's slowest searches; the median per-pair speedup was 1.1–2.2×. With the bond-maximizing
 objective, 95–98% of mappings agreed with LOMAP up to symmetry, excluding LOMAP timeouts.
 These measurements cover mapping, not similarity scoring or network planning.
 See the [benchmark results and methodology](https://github.com/craabreu/atommapper/blob/main/benchmarks/README.md).
@@ -105,7 +105,7 @@ map_atoms(source, target, *, element_change=True, objective="change",
 | `objective` | `"change"`: minimize the size of the change | `"bonds"`: maximize kept bonds, then kept atoms, then minimize change |
 | `element_change` | `True`: mapped atoms may change element | `False` / `--fixed-elements`: require matching elements |
 | `allow_stereo_inversion` | `False`: reject mappings that invert a retained stereo element | `True` / `--allow-stereo-inversion`: allow inversions and count each as one change |
-| `settings` | Default search budgets and time limit | A `Settings` instance; see [Search limits](#search-limits) |
+| `settings` | Default search budgets and work limit | A `Settings` instance; see [Search limits](#search-limits) |
 
 The change size counts each inserted or deleted atom or bond, each element change, and
 each bond-order change as one. Allowed stereo inversions also count as one. Other
@@ -166,7 +166,7 @@ Check `status` before using a result in an automated workflow:
 | Status | Meaning |
 |---|---|
 | `complete` | The configured search finished; global optimality is not guaranteed |
-| `timed_out` | A work budget, size ceiling, or time limit stopped the search; the result is the best found so far |
+| `timed_out` | A work budget, size ceiling, the work limit, or the wall-clock guard stopped the search; the result is the best found so far |
 | `no_common_vertices` | No atom can be mapped under the constraints; the mapping is empty |
 | `unsupported_input` | A valid input cannot be represented faithfully; `reason` explains why, and no mapped SMILES is returned |
 
@@ -174,7 +174,7 @@ Check `status` before using a result in an automated workflow:
 from atommapper import InvalidInput, Settings, map_atoms
 
 try:
-    result = map_atoms("CCO", "CC=O", settings=Settings(time_limit_s=10.0))
+    result = map_atoms("CCO", "CC=O", settings=Settings(work_limit=10.0))
 except InvalidInput as error:
     print(f"Invalid molecule: {error}")
 else:
@@ -225,7 +225,7 @@ from atommapper import Settings, map_atoms
 
 result = map_atoms(
     "Cc1ccc(F)cc1", "Cc1cccc(F)c1",
-    settings=Settings(time_limit_s=30.0, node_budget=2_000_000),
+    settings=Settings(work_limit=30.0, node_budget=2_000_000),
 )
 ```
 
@@ -233,14 +233,46 @@ result = map_atoms(
 |---|---:|---|---|
 | `fragment_steps` | 20,000,000 | Total fragment-search work budget | `--steps` |
 | `node_budget` | 1,000,000 | Total branch-and-bound work budget | `--nodes` |
-| `time_limit_s` | 60.0 | Wall-clock limit measured from the start of the call | `--timeout` |
+| `work_limit` | 60.0 | Limit on the work of a call, in virtual seconds (about one wall second of the reference machine; see below), counted without reading a clock | `--work-limit` |
+| `wall_guard_factor` | 10.0 | Wall-clock guard, as a multiple of `work_limit` | Python only |
 | `fragment_bond_pairs` | 20,000 | Ceiling on compatible bond pairs in the fragment search | `--pairs` |
 | `coarse_fragment_steps` | 100,000 | Work cap for the element-independent fragment pass | Python only |
 
-Work budgets make the stopping point reproducible, provided the wall-clock limit does
-not intervene. Clock-limited results depend on machine speed and load. The time limit is
-not a hard process deadline: parsing, stereo perception, and result assembly are not
+The work budgets and the work limit make the stopping point reproducible. The work limit
+is a virtual clock: each stage counts its work, and the clock advances by a fixed amount
+per unit. The same calls therefore stop on every machine and under any load, with
+`work` among the stop reasons, and a pair whose fragment-search set-up alone costs more
+than the limit stops before the search. CPLEX's deterministic time limit and Gurobi's
+`WorkLimit` are the same device.
+
+The amounts per unit are a constant of the package, the reference clock
+(`atommapper.clock.REFERENCE_RATES`): one virtual second is one second of the reference
+machine, an AMD Ryzen Threadripper PRO 5975WX running eight calls at a time (with all 32
+cores busy, the same calls took about 1.8 times as long). `work_limit` is the only knob.
+Results made on two machines are comparable when it is the same; the name of the clock is
+in `Settings().reference_clock` and in `metadata["versions"]["clock"]`, so results cached
+by their settings do not mix if a later version fits the rates again.
+
+The wall clock remains as a guard, at `wall_guard_factor` times the limit in real seconds:
+a call it stops reports `time` and does depend on machine speed and load. Neither clock is
+a hard process deadline: parsing, stereo perception, and result assembly are not
 interrupted. The optional global check described below has its own additional budget.
+
+To see what a virtual second is worth on your machine, calibrate:
+
+```bash
+atommapper calibrate --wall-seconds 10 --workers 1
+```
+
+or `atommapper.calibrate(10.0, workers=1)` in Python. It maps a benchmark shipped with
+the package (300 calls on synthetic molecules, about two minutes on one core of the
+reference machine; `benchmarks/make_calibration_pairs.py` builds it), reports the wall
+seconds per virtual second (median, 5th and 95th percentiles, per stage too; on the
+reference machine its slow calls give 1.02 with eight calls at a time and 0.97 with one)
+and suggests the `work_limit` that takes the wall time you asked for. Run it with the
+number of workers the real work will use. Results are comparable across machines only at the same
+`work_limit`: a calibrated limit gives up exact comparability with results made at
+another limit.
 
 Reaching the coarse-pass cap is part of the normal method and does not set `timed_out`;
 inspect `metadata["fragment_search"]["coarse_capped"]`. The bond-pair ceiling protects
