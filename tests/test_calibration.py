@@ -5,6 +5,7 @@ from importlib import resources
 from pathlib import Path
 
 import pytest
+import rdkit
 from rdkit import Chem
 
 from atommapper import calibrate, calibration
@@ -61,6 +62,8 @@ def test_the_generator_writes_the_packaged_benchmark_again():
     assert spec is not None and spec.loader is not None
     generator = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(generator)
+    if rdkit.__version__ != generator.RDKIT_VERSION:
+        pytest.skip(f"the benchmark was made with RDKit {generator.RDKIT_VERSION}")
     # Byte for byte: the molecules are text the script writes, not RDKit's canonical SMILES.
     assert generator.build() == packaged()
 

@@ -2,7 +2,7 @@
 
 Use ``map_atoms`` with SMILES strings or RDKit molecules to obtain a ``MappingResult``.
 Configure search limits with ``Settings`` and save pair drawings with ``save_image``.
-``calibrate`` compares the virtual seconds of the time limit with seconds of this machine.
+``calibrate`` compares the virtual seconds of the work limit with seconds of this machine.
 """
 
 from .calibration import calibrate

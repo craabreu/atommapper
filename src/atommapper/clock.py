@@ -29,6 +29,9 @@ import time
 from dataclasses import asdict, dataclass, fields
 
 PICOSECONDS = 10**12
+MAX_LIMIT = 2**64
+"""Limits from this many virtual picoseconds on (about 213 virtual days) are no limit: the
+engine counts its work in 64-bit integers."""
 
 
 @dataclass(frozen=True)
@@ -151,8 +154,10 @@ class VirtualClock:
         self, limit_s: float, rates: ClockRates, guard_factor: float, start: float
     ) -> None:
         self.rates = rates
-        self.limit: int | None = None if math.isinf(limit_s) else round(limit_s * PICOSECONDS)
-        """The limit in virtual picoseconds; None without one."""
+        picoseconds = limit_s * PICOSECONDS
+        self.limit: int | None = round(picoseconds) if picoseconds < MAX_LIMIT else None
+        """The limit in virtual picoseconds; None without one, or for a limit too large to
+        count (``MAX_LIMIT``), which no call reaches."""
         self.spent = 0
         """Virtual picoseconds so far."""
         self.work: dict[str, int] = {field.name: 0 for field in fields(rates)}

@@ -60,7 +60,8 @@ class Settings:
     """The wall-clock guard, as a multiple of ``work_limit`` in real seconds from the
     start of the call. It is a safety net for a machine much slower than the reference
     one; a call it stops depends on machine speed and load, has status "timed_out", and
-    includes "time" in metadata["budget"]["stopped_by"]. Infinity turns the guard off."""
+    includes "time" in metadata["budget"]["stopped_by"]. Infinity turns the guard off; zero
+is rejected, since it would stop every call at once."""
     fragment_steps: int = 20_000_000
     """Total fragment-search steps across all passes. Exhaustion sets status to
     "timed_out" and includes "steps" in metadata["budget"]["stopped_by"]."""
@@ -79,7 +80,9 @@ class Settings:
     Zero disables it. The check uses unconstrained graph edit distance under the same
     objective. If it finishes and matches a completed mapping's cost, optimality becomes
     "optimal"; otherwise no global proof is established. See metadata["global_check"]
-    for the bound and gap. Intended for small molecules and validation."""
+    for the bound and gap. Intended for small molecules and validation. Unlike
+    ``work_limit``, this budget is read from the wall clock, so whether the check finishes,
+    and with it ``optimality``, can depend on the machine and its load."""
     max_fragments: int = 4096
     """Maximum number of common fragments retained. Truncation is recorded in
     metadata["fragment_search"]["truncated"] and can affect consistency under reversal."""
@@ -89,14 +92,21 @@ class Settings:
     max_alternatives: int = 16
     """Maximum tied mappings retained per seed for tie-breaking. When capped,
     metadata["ambiguity"]["lower_bound"] indicates that its count may be incomplete."""
-    reference_clock: str = dataclasses.field(default_factory=reference_id, init=False)
+    reference_clock: str = dataclasses.field(default_factory=reference_id)
     """The name of the rates the virtual clock runs on (``atommapper.clock.CLOCK_ID``).
-    Not a setting to choose: the rates are a constant of the package. It is here so that
-    whatever identifies results by their settings, a cache key for one, changes when the
-    rates do."""
+    Not a setting to choose: the rates are a constant of the package, and any other name
+    is rejected. It is here so that whatever identifies results by their settings, a cache
+    key for one, changes when the rates do; and it is accepted, so that settings saved
+    with a result (``metadata["settings"]``) can be passed back, and settings saved under
+    other rates fail instead of giving other results."""
 
     def __post_init__(self) -> None:
         """Reject a bad value when the settings are built, not deep inside a search."""
+        if self.reference_clock != reference_id():
+            raise ValueError(
+                f"reference_clock {self.reference_clock!r} is not this package's clock "
+                f"{reference_id()!r}: settings saved under other rates give other results"
+            )
         for field in fields(self):
             name, value = field.name, getattr(self, field.name)
             if name in _COUNTS or (name in _OPTIONAL_COUNTS and value is not None):
@@ -113,5 +123,5 @@ class Settings:
             elif name == "wall_guard_factor":
                 if isinstance(value, bool) or not isinstance(value, int | float):
                     raise TypeError(f"{name} must be a number, got {value!r}")
-                if math.isnan(value) or value < 0:
-                    raise ValueError(f"{name} must not be negative or NaN, got {value}")
+                if math.isnan(value) or value <= 0:
+                    raise ValueError(f"{name} must be positive, got {value}")

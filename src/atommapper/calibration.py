@@ -1,4 +1,4 @@
-"""Calibration: how the virtual seconds of the time limit compare with seconds of this machine.
+"""Calibration: how the virtual seconds of the work limit compare with seconds of this machine.
 
 ``Settings.work_limit`` is counted in work, on a reference clock (``clock``): the same
 calls stop on every machine, and a virtual second is a second of the reference machine.
@@ -29,9 +29,10 @@ Call = tuple[str, str, bool]
 """A call of the benchmark: source SMILES, target SMILES, ``allow_stereo_inversion``."""
 
 VIRTUAL_LIMIT_S = 5.0
-"""The time limit of the benchmark's calls, in virtual seconds: above what its slowest call
-takes, so every call runs to its end, and deterministic, so a change of the package that
-made one much slower would still not make the benchmark endless."""
+"""The work limit of the benchmark's calls, in virtual seconds: above what its slowest call
+takes, so no call stops at it (the three largest stop earlier, at the ceiling on
+compatible bond pairs, which is part of their work), and deterministic, so a change of the
+package that made one much slower would still not make the benchmark endless."""
 
 SLOW_S = 0.5
 """Calls of at least this many virtual seconds are the slow ones, whose ratio suggests the
@@ -152,12 +153,12 @@ def _ratio(pairs: Sequence[tuple[float, float]]) -> Ratio | None:
 def calibrate(
     wall_seconds: float = 10.0, *, workers: int = 1, calls: Sequence[Call] | None = None
 ) -> Calibration:
-    """Compare virtual seconds with seconds of this machine, and suggest a time limit.
+    """Compare virtual seconds with seconds of this machine, and suggest a work limit.
 
     Parameters
     ----------
     wall_seconds : float, default 10.0
-        The wall time a call should take here when the time limit stops it.
+        The wall time a call should take here when the work limit stops it.
     workers : int, default 1
         Calls mapped at a time, each in its own process. Use the number the real work will
         run with: a second buys less when more calls run at a time.
@@ -173,7 +174,7 @@ def calibrate(
 
     Notes
     -----
-    A time limit other than the one a set of results was made with gives other results
+    A work limit other than the one a set of results was made with gives other results
     for the pairs between the two limits, on whatever machine: results are comparable
     across machines only at the same ``work_limit``.
 
@@ -225,7 +226,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         prog="atommapper calibrate",
         description="Map the benchmark shipped with the package and compare each call's "
         "wall time with its virtual time, the unit of --work-limit and Settings.work_limit. "
-        "Print their ratio and the time limit that takes --wall-seconds on this machine. "
+        "Print their ratio and the work limit that takes --wall-seconds on this machine. "
         "About two minutes on one core of the reference machine.",
         epilog=GUIDANCE,
     )

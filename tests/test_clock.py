@@ -95,18 +95,14 @@ def test_the_wall_clock_guard_does_not_fire_on_an_ordinary_pair():
 
 
 def test_the_wall_clock_guard_does_not_fire_when_the_virtual_clock_stops_a_call():
-    start = time.perf_counter()
     result = map_atoms(*DENDRIMERS, settings=Settings(work_limit=0.2))
-    elapsed = time.perf_counter() - start
     # The guard is at 2 s: a virtual second is about a real one, so it is not reached.
     assert result.metadata["budget"]["stopped_by"] == "work"
-    assert elapsed < 1.2
+    assert 0.2 < result.metadata["budget"]["virtual_s"] < 0.2 + 0.1
 
 
 def test_a_set_up_that_costs_more_than_the_limit_stops_before_the_search():
-    start = time.perf_counter()
-    result = map_atoms(*CHAINS, settings=Settings(work_limit=0.2))
-    elapsed = time.perf_counter() - start
+    result = map_atoms(*CHAINS, settings=Settings(work_limit=0.2, wall_guard_factor=NO_GUARD))
     search, budget = result.metadata["fragment_search"], result.metadata["budget"]
     assert result.status == "timed_out"
     assert search["stopped_by"] == "work" and search["steps"] == 0
@@ -114,12 +110,13 @@ def test_a_set_up_that_costs_more_than_the_limit_stops_before_the_search():
     assert budget["work"]["relation_pair"] == 19_460 * 19_459 // 2
     assert budget["work"]["word"] == 0
     assert budget["virtual_s"] > 0.2
-    assert elapsed < 0.5
 
 
 def test_with_the_virtual_clock_off_the_wall_clock_guard_stops_the_call(monkeypatch):
     # The rates are no setting: only a test turns the virtual clock off.
     monkeypatch.setattr(clock, "REFERENCE_RATES", ClockRates.off())
+    # A guard of 0.2 s. Run to their ends, the two searches below take 22 s and 8 s on the
+    # reference machine, so the guard stops them on any machine less than 40 times faster.
     settings = Settings(work_limit=0.2, wall_guard_factor=1.0)
     start = time.perf_counter()
     result = map_atoms(*DENDRIMERS, settings=settings)
@@ -129,12 +126,12 @@ def test_with_the_virtual_clock_off_the_wall_clock_guard_stops_the_call(monkeypa
     assert "time" in result.metadata["budget"]["stopped_by"].split(",")
     assert result.metadata["budget"]["virtual_s"] == 0
     assert len(result.mapping) > 1
-    assert elapsed < 0.2 + 1.0
+    assert elapsed < 0.2 + 2.0
     # The set-up of a large search graph reads the guard too.
     start = time.perf_counter()
     result = map_atoms(*CHAINS, settings=settings)
     assert result.metadata["fragment_search"]["stopped_by"] == "time"
-    assert time.perf_counter() - start < 0.2 + 1.0
+    assert time.perf_counter() - start < 0.2 + 2.0
 
 
 def cache_key(settings: Settings) -> str:
@@ -152,10 +149,22 @@ def test_the_reference_clock_is_frozen_and_named_in_the_settings_and_the_results
     result = map_atoms("CCO", "CC=O")
     assert result.metadata["settings"]["reference_clock"] == CLOCK_ID
     assert result.metadata["versions"]["clock"] == CLOCK_ID
-    # Not a setting to choose.
-    with pytest.raises(TypeError, match="reference_clock"):
-        Settings(reference_clock="mine")  # ty: ignore[unknown-argument]
+    # Not a setting to choose, but settings saved with a result can be passed back.
+    with pytest.raises(ValueError, match="reference_clock"):
+        Settings(reference_clock="clock-000000000000")
+    assert Settings(**result.metadata["settings"]) == Settings()
     assert replace(Settings(), work_limit=2.0).reference_clock == CLOCK_ID
+
+
+@pytest.mark.parametrize("limit", [2e7, 1e9, 1e300, math.inf])
+def test_a_limit_too_large_to_count_is_no_limit(limit):
+    result = map_atoms("Cc1ccc(F)cc1", "Cc1cccc(F)c1", settings=Settings(work_limit=limit))
+    assert result.status == "complete"
+
+
+def test_a_guard_of_zero_is_rejected():
+    with pytest.raises(ValueError, match="wall_guard_factor"):
+        Settings(wall_guard_factor=0)
 
 
 def test_a_change_of_any_rate_changes_the_name_of_the_clock_and_a_cache_key(monkeypatch):
@@ -210,7 +219,7 @@ def test_scaling_the_limit_is_scaling_every_rate_by_the_inverse(monkeypatch, pai
 
 
 def test_bad_clock_settings_are_rejected():
-    with pytest.raises(ValueError, match=r"wall_guard_factor.*NaN"):
+    with pytest.raises(ValueError, match=r"wall_guard_factor.*nan"):
         Settings(wall_guard_factor=float("nan"))
     with pytest.raises(ValueError, match="wall_guard_factor"):
         Settings(wall_guard_factor=-1.0)

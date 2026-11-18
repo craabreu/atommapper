@@ -57,11 +57,11 @@ color (``_shift_seeds``): the optimum then usually pairs the element's surroundi
 otherwise than the fragment did (a chain shifted along a double bond, the arms of a centre
 swapped). With inversions allowed, the search also starts from every seed it would start
 from with them forbidden, so allowing them never gives a larger change (unless a budget or
-the time limit stops the search). The seeds are kept whole, so the result is optimal
+the work limit stops the search). The seeds are kept whole, so the result is optimal
 given them, not optimal: when the largest fragments break another rule, the optimum may
 hold no seed, and the result can then be far from it (README, "Limits").
 
-The time limit is counted in work, not read from a clock (``clock``): every stage advances
+The work limit is counted in work, not read from a clock (``clock``): every stage advances
 the call's virtual clock, and a stage stops when that clock, or the wall-clock guard behind
 it, says so.
 """
@@ -676,7 +676,7 @@ def map_atoms(
         Allow a mapped tetrahedral centre or double bond to invert and count each
         inversion as one change. Inversions appear in the change lists and stereo metadata.
     settings : Settings or None, default None
-        Search budgets and limits. None uses Settings(), including a time limit of 60
+        Search budgets and limits. None uses Settings(), including a work limit of 60
         virtual seconds (counted in work, so the same calls stop on every machine; a
         virtual second is a second of the reference machine, see ``calibrate``).
 

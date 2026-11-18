@@ -41,6 +41,8 @@ from rdkit import Chem, RDLogger
 from rdkit.Chem import rdCIPLabeler
 
 SEED = 20261118
+RDKIT_VERSION = "2026.09.2"
+"""The RDKit the committed file was made with: another one may judge a candidate differently."""
 OUTPUT = Path(__file__).resolve().parent.parent / "src" / "atommapper" / "calibration_pairs.tsv"
 BANDS = (50, 70, 90, 120, 200)
 """Upper ends of the bands of a pair's heavy atoms (both molecules); a sixth band is above."""

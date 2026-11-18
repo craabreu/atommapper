@@ -1,6 +1,6 @@
 """Budgets, clocks and other regressions, through the public API."""
 
-import time
+import math
 
 import pytest
 
@@ -37,11 +37,9 @@ def test_a_large_macrocycle_returns_within_budget():
     ]
     source = cyclic_peptide(chains)
     target = cyclic_peptide([*chains[:4], "C", *chains[5:]])
-    start = time.perf_counter()
     result = map_atoms(source, target, settings=Settings(work_limit=4.0))
-    elapsed = time.perf_counter() - start
     assert result.status in {"complete", "timed_out"}
-    assert elapsed < 4.0 + 1.0
+    assert result.metadata["budget"]["virtual_s"] < 4.0 + 1.0
     assert all(value is not False for value in result.metadata["checks"].values())
 
 
@@ -75,10 +73,9 @@ DENDRIMERS = (
 )
 
 
-def test_the_time_limit_bounds_the_whole_call_the_fragment_search_included():
-    start = time.perf_counter()
-    result = map_atoms(*DENDRIMERS, settings=Settings(work_limit=0.2))
-    elapsed = time.perf_counter() - start
+def test_the_work_limit_bounds_the_whole_call_the_fragment_search_included():
+    # Without the wall-clock guard, which a loaded machine could reach first.
+    result = map_atoms(*DENDRIMERS, settings=Settings(work_limit=0.2, wall_guard_factor=math.inf))
     assert result.status == "timed_out"
     # The limit is counted in work (tests/test_clock.py): "work", not "time".
     assert result.metadata["fragment_search"]["stopped_by"] == "work"
@@ -86,17 +83,17 @@ def test_the_time_limit_bounds_the_whole_call_the_fragment_search_included():
     # The fragments found by the limit still seed the search: map_atoms once
     # dropped them all and fell back to a single atom pair.
     assert len(result.mapping) > 1
-    assert elapsed < 0.2 + 1.0
+    assert result.metadata["budget"]["virtual_s"] < 0.2 + 1.0
 
 
-def test_a_zero_work_limitearches_nothing_and_says_so():
+def test_a_zero_work_limit_searches_nothing_and_says_so():
     result = map_atoms("Cc1ccc(F)cc1", "Cc1cccc(F)c1", settings=Settings(work_limit=0.0))
     assert result.status == "timed_out"
     assert result.metadata["fragment_search"]["stopped_by"] == "work"
     assert result.metadata["fragment_search"]["steps"] == 0
 
 
-def test_a_nan_time_limit_is_rejected_by_settings():
+def test_a_nan_work_limit_is_rejected_by_settings():
     # NaN passes "< 0" and every deadline comparison; it used to reach the engine.
     with pytest.raises(ValueError, match=r"work_limit.*NaN"):
         Settings(work_limit=float("nan"))
@@ -104,16 +101,14 @@ def test_a_nan_time_limit_is_rejected_by_settings():
         Settings(global_budget_s=float("nan"))
 
 
-def test_the_time_limit_bounds_the_set_up_of_a_large_search_graph():
+def test_the_work_limit_bounds_the_set_up_of_a_large_search_graph():
     # 19,460 bond pairs: building the search graph took 1.7 s, so a 0.2 s limit
     # took 2.2 s before the engine read the clock there. The set-up is now charged to
     # the virtual clock before it starts, and is not done.
-    start = time.perf_counter()
     result = map_atoms("C" * 140, "C" * 141, settings=Settings(work_limit=0.2))
-    elapsed = time.perf_counter() - start
     assert result.status == "timed_out"
     assert result.metadata["fragment_search"]["stopped_by"] == "work"
-    assert elapsed < 0.2 + 1.0
+    assert result.metadata["fragment_search"]["steps"] == 0
 
 
 # Two synthetic dimers: twice a ring system on a benzene ring, joined through a chain of six
