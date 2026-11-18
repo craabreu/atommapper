@@ -31,8 +31,8 @@ def test_unsupported_input_exits_one(capsys):
 
 
 def test_a_timeout_exits_three_unless_partial_results_are_accepted(capsys):
-    assert main(["Cc1ccc(F)cc1", "Cc1cccc(F)c1", "--timeout", "0"]) == 3
-    assert main(["Cc1ccc(F)cc1", "Cc1cccc(F)c1", "--timeout", "0", "--accept-partial"]) == 0
+    assert main(["Cc1ccc(F)cc1", "Cc1cccc(F)c1", "--work-limit", "0"]) == 3
+    assert main(["Cc1ccc(F)cc1", "Cc1cccc(F)c1", "--work-limit", "0", "--accept-partial"]) == 0
 
 
 def test_an_exhausted_step_budget_exits_three(capsys):

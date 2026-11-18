@@ -51,7 +51,7 @@ mod python {
             Stop::Steps => "steps",
             Stop::Pairs => "pairs",
             Stop::Time => "time",
-            Stop::Work => "virtual",
+            Stop::Work => "work",
         }
     }
 
@@ -77,7 +77,7 @@ mod python {
     /// ``"pairs"`` (more compatible bond pairs than ``max_pairs``; nothing was searched)
     /// or ``"time"`` (``time_limit_s`` seconds passed, read every ``CLOCK_EVERY`` steps,
     /// more often on large search graphs and while those are built; without it the clock
-    /// is never read) or ``"virtual"`` (the work, at the prices ``work_costs``, cost more
+    /// is never read) or ``"work"`` (the work, at the prices ``work_costs``, cost more
     /// than ``work_limit``; a stop that reads no clock). ``work`` counts the work done as
     /// ``(relation_pairs, steps, words, leaf_bonds)`` (``engine::Work``) and ``work_costs`` prices
     /// those units in the same order. Labels are any integers; bonds must be distinct and

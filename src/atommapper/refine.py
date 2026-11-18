@@ -26,7 +26,7 @@ class RefineOutcome:
     alternatives_capped: bool
     nodes: int
     stopped_by: str | None
-    """``"nodes"`` when the node budget ran out, ``"virtual"`` when the virtual clock did,
+    """``"nodes"`` when the node budget ran out, ``"work"`` when the virtual clock did,
     ``"time"`` when the wall clock did, else None."""
 
 
@@ -197,7 +197,7 @@ class _BranchAndBound:
             return
         if self.clock is not None:
             if self.clock.expired:
-                self.stopped_by = "virtual"
+                self.stopped_by = "work"
                 return
             self.clock.charge("node", self.node_units)
         if time.perf_counter() > self.deadline:

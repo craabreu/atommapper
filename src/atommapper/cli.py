@@ -86,7 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="ceiling on compatible bond pairs the fragment search takes (default 20000)",
     )
     parser.add_argument(
-        "--timeout",
+        "--work-limit",
         type=float,
         default=None,
         help="search limit in virtual seconds, counted in work and not read from a clock: "
@@ -98,7 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="exit 0 for a partial result after a work or time limit (JSON status is unchanged)",
     )
     parser.epilog = (
-        "'atommapper calibrate' compares the virtual seconds of --timeout with seconds of "
+        "'atommapper calibrate' compares the virtual seconds of --work-limit with seconds of "
         "this machine (see 'atommapper calibrate --help'). "
         "exit status: 0 success, 1 invalid or unsupported input, 2 usage error, "
         "3 a work or time limit stopped the search (unless --accept-partial)"
@@ -119,7 +119,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         node_budget=defaults.node_budget if args.nodes is None else args.nodes,
         fragment_steps=defaults.fragment_steps if args.steps is None else args.steps,
         fragment_bond_pairs=defaults.fragment_bond_pairs if args.pairs is None else args.pairs,
-        work_limit=defaults.work_limit if args.timeout is None else args.timeout,
+        work_limit=defaults.work_limit if args.work_limit is None else args.work_limit,
     )
     try:
         result = map_atoms(

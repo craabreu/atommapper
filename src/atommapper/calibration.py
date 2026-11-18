@@ -224,7 +224,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="atommapper calibrate",
         description="Map the benchmark shipped with the package and compare each call's "
-        "wall time with its virtual time, the unit of --timeout and Settings.work_limit. "
+        "wall time with its virtual time, the unit of --work-limit and Settings.work_limit. "
         "Print their ratio and the time limit that takes --wall-seconds on this machine. "
         "About two minutes on one core of the reference machine.",
         epilog=GUIDANCE,

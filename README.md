@@ -105,7 +105,7 @@ map_atoms(source, target, *, element_change=True, objective="change",
 | `objective` | `"change"`: minimize the size of the change | `"bonds"`: maximize kept bonds, then kept atoms, then minimize change |
 | `element_change` | `True`: mapped atoms may change element | `False` / `--fixed-elements`: require matching elements |
 | `allow_stereo_inversion` | `False`: reject mappings that invert a retained stereo element | `True` / `--allow-stereo-inversion`: allow inversions and count each as one change |
-| `settings` | Default search budgets and time limit | A `Settings` instance; see [Search limits](#search-limits) |
+| `settings` | Default search budgets and work limit | A `Settings` instance; see [Search limits](#search-limits) |
 
 The change size counts each inserted or deleted atom or bond, each element change, and
 each bond-order change as one. Allowed stereo inversions also count as one. Other
@@ -166,7 +166,7 @@ Check `status` before using a result in an automated workflow:
 | Status | Meaning |
 |---|---|
 | `complete` | The configured search finished; global optimality is not guaranteed |
-| `timed_out` | A work budget, size ceiling, or time limit stopped the search; the result is the best found so far |
+| `timed_out` | A work budget, size ceiling, the work limit, or the wall-clock guard stopped the search; the result is the best found so far |
 | `no_common_vertices` | No atom can be mapped under the constraints; the mapping is empty |
 | `unsupported_input` | A valid input cannot be represented faithfully; `reason` explains why, and no mapped SMILES is returned |
 
@@ -233,15 +233,15 @@ result = map_atoms(
 |---|---:|---|---|
 | `fragment_steps` | 20,000,000 | Total fragment-search work budget | `--steps` |
 | `node_budget` | 1,000,000 | Total branch-and-bound work budget | `--nodes` |
-| `work_limit` | 60.0 | Limit on the work of a call, in virtual seconds (about one wall second of the reference machine; see below), counted without reading a clock | `--timeout` |
+| `work_limit` | 60.0 | Limit on the work of a call, in virtual seconds (about one wall second of the reference machine; see below), counted without reading a clock | `--work-limit` |
 | `wall_guard_factor` | 10.0 | Wall-clock guard, as a multiple of `work_limit` | Python only |
 | `fragment_bond_pairs` | 20,000 | Ceiling on compatible bond pairs in the fragment search | `--pairs` |
 | `coarse_fragment_steps` | 100,000 | Work cap for the element-independent fragment pass | Python only |
 
-The work budgets and the time limit make the stopping point reproducible. The time limit
+The work budgets and the work limit make the stopping point reproducible. The work limit
 is a virtual clock: each stage counts its work, and the clock advances by a fixed amount
 per unit. The same calls therefore stop on every machine and under any load, with
-`virtual` among the stop reasons, and a pair whose fragment-search set-up alone costs more
+`work` among the stop reasons, and a pair whose fragment-search set-up alone costs more
 than the limit stops before the search. CPLEX's deterministic time limit and Gurobi's
 `WorkLimit` are the same device.
 

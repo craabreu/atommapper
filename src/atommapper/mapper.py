@@ -562,7 +562,7 @@ def _connected_fragments(
     if not source_bonds or not target_bonds or max_steps <= 0:
         return [], 0, None if max_steps > 0 else "steps", False, known_score
     if clock.expired:
-        return [], 0, "virtual", False, known_score
+        return [], 0, "work", False, known_score
     left = remaining(clock.deadline)
     if left is not None and left <= 0:
         return [], 0, "time", False, known_score

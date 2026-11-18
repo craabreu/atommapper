@@ -4,7 +4,7 @@ The connected common fragments themselves come from the Rust engine (``rust/``, 
 ``atommapper._mces``) within a budget of search steps, so a search stopped by its
 budget returns the same fragments on every machine, and so does one stopped by the cost
 of its work, which is how the call's virtual clock (``clock``) reaches the engine; it
-reports ``"virtual"``. With a deadline the engine also reads the clock; a search the clock
+reports ``"work"``. With a deadline the engine also reads the clock; a search the clock
 stopped reports ``"time"`` and depends on machine speed and load.
 """
 

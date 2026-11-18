@@ -1,4 +1,4 @@
-"""The virtual clock: a time limit that reads no clock.
+"""The virtual clock: a work limit that reads no clock.
 
 ``Settings.work_limit`` bounds a call in virtual seconds. Each stage of the search counts
 its work in units whose cost does not depend on the pair, and the virtual clock advances by
@@ -18,7 +18,7 @@ same.
 
 The wall clock is still read, as a guard: it stops a call after
 ``Settings.wall_guard_factor`` times the limit in real seconds, and a call it stops says
-so (``"time"`` among the stop reasons, against ``"virtual"`` for the virtual clock). On a
+so (``"time"`` among the stop reasons, against ``"work"`` for the virtual clock). On a
 machine like the reference one, the guard does not fire.
 """
 
@@ -161,7 +161,7 @@ class VirtualClock:
         self.deadline = start + guard_factor * limit_s if guarded else math.inf
         """The wall-clock guard, a ``time.perf_counter`` reading; infinite without one."""
         self.stops: set[str] = set()
-        """Which clock stopped a stage: ``"virtual"``, ``"time"`` (the guard) or both."""
+        """Which clock stopped a stage: ``"work"``, ``"time"`` (the guard) or both."""
 
     def charge(self, name: str, units: int) -> None:
         """Advance the clock by ``units`` of the work priced by the rate ``name``."""
@@ -182,7 +182,7 @@ class VirtualClock:
         """Whether a stage should stop, and why (``stops``): the virtual clock is past the
         limit or, failing that, the wall-clock guard has passed."""
         if self.expired:
-            self.stops.add("virtual")
+            self.stops.add("work")
             return True
         if time.perf_counter() > self.deadline:
             self.stops.add("time")

@@ -80,9 +80,9 @@ def test_the_time_limit_bounds_the_whole_call_the_fragment_search_included():
     result = map_atoms(*DENDRIMERS, settings=Settings(work_limit=0.2))
     elapsed = time.perf_counter() - start
     assert result.status == "timed_out"
-    # The limit is counted in work (tests/test_clock.py): "virtual", not "time".
-    assert result.metadata["fragment_search"]["stopped_by"] == "virtual"
-    assert result.metadata["budget"]["stopped_by"] == "virtual"
+    # The limit is counted in work (tests/test_clock.py): "work", not "time".
+    assert result.metadata["fragment_search"]["stopped_by"] == "work"
+    assert result.metadata["budget"]["stopped_by"] == "work"
     # The fragments found by the limit still seed the search: map_atoms once
     # dropped them all and fell back to a single atom pair.
     assert len(result.mapping) > 1
@@ -92,7 +92,7 @@ def test_the_time_limit_bounds_the_whole_call_the_fragment_search_included():
 def test_a_zero_work_limitearches_nothing_and_says_so():
     result = map_atoms("Cc1ccc(F)cc1", "Cc1cccc(F)c1", settings=Settings(work_limit=0.0))
     assert result.status == "timed_out"
-    assert result.metadata["fragment_search"]["stopped_by"] == "virtual"
+    assert result.metadata["fragment_search"]["stopped_by"] == "work"
     assert result.metadata["fragment_search"]["steps"] == 0
 
 
@@ -112,7 +112,7 @@ def test_the_time_limit_bounds_the_set_up_of_a_large_search_graph():
     result = map_atoms("C" * 140, "C" * 141, settings=Settings(work_limit=0.2))
     elapsed = time.perf_counter() - start
     assert result.status == "timed_out"
-    assert result.metadata["fragment_search"]["stopped_by"] == "virtual"
+    assert result.metadata["fragment_search"]["stopped_by"] == "work"
     assert elapsed < 0.2 + 1.0
 
 

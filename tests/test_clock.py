@@ -45,7 +45,7 @@ def test_a_call_the_virtual_clock_stops_returns_the_same_every_time():
     settings = Settings(work_limit=0.2, wall_guard_factor=NO_GUARD)
     first = map_atoms(*DENDRIMERS, settings=settings)
     assert first.status == "timed_out"
-    assert first.metadata["budget"]["stopped_by"] == "virtual"
+    assert first.metadata["budget"]["stopped_by"] == "work"
     assert first.metadata["budget"]["virtual_s"] > 0.2
     assert len(first.mapping) > 1
     for _ in range(2):
@@ -70,7 +70,7 @@ def test_a_call_the_virtual_clock_stops_returns_the_same_under_load():
         done.set()
         for thread in threads:
             thread.join()
-    assert loaded.metadata["budget"]["stopped_by"] == "virtual"
+    assert loaded.metadata["budget"]["stopped_by"] == "work"
     assert outcome(loaded) == outcome(idle)
 
 
@@ -78,7 +78,7 @@ def test_a_refinement_the_virtual_clock_stops_returns_the_same_every_time():
     pair = NODE_HUNGRY
     settings = Settings(work_limit=0.05, wall_guard_factor=NO_GUARD)
     first = map_atoms(*pair, settings=settings)
-    assert first.metadata["budget"]["stopped_by"] == "virtual"
+    assert first.metadata["budget"]["stopped_by"] == "work"
     assert first.metadata["fragment_search"]["stopped_by"] is None
     assert first.metadata["budget"]["nodes_used"] > 0
     assert outcome(map_atoms(*pair, settings=settings)) == outcome(first)
@@ -99,7 +99,7 @@ def test_the_wall_clock_guard_does_not_fire_when_the_virtual_clock_stops_a_call(
     result = map_atoms(*DENDRIMERS, settings=Settings(work_limit=0.2))
     elapsed = time.perf_counter() - start
     # The guard is at 2 s: a virtual second is about a real one, so it is not reached.
-    assert result.metadata["budget"]["stopped_by"] == "virtual"
+    assert result.metadata["budget"]["stopped_by"] == "work"
     assert elapsed < 1.2
 
 
@@ -109,7 +109,7 @@ def test_a_set_up_that_costs_more_than_the_limit_stops_before_the_search():
     elapsed = time.perf_counter() - start
     search, budget = result.metadata["fragment_search"], result.metadata["budget"]
     assert result.status == "timed_out"
-    assert search["stopped_by"] == "virtual" and search["steps"] == 0
+    assert search["stopped_by"] == "work" and search["steps"] == 0
     # The set-up was charged, not done: every relation of the 19,460 bond pairs.
     assert budget["work"]["relation_pair"] == 19_460 * 19_459 // 2
     assert budget["work"]["word"] == 0
@@ -229,7 +229,7 @@ def test_the_virtual_clock_counts_work_and_reads_no_clock_to_expire():
     virtual.charge("node", 4)
     assert (virtual.spent, virtual.left, virtual.expired) == (1000, 0, False)
     virtual.charge("seed", 1)
-    assert virtual.expired and virtual.late() and virtual.stops == {"virtual"}
+    assert virtual.expired and virtual.late() and virtual.stops == {"work"}
     assert virtual.work["node"] == 4 and virtual.work["seed"] == 1
     # Without a limit the clock never expires, and without a guard it is never late.
     endless = VirtualClock(math.inf, REFERENCE_RATES, 10.0, time.perf_counter())

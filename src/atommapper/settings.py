@@ -54,7 +54,7 @@ class Settings:
     Fragment search, seeding, and refinement check the limit at every step; a pair whose
     fragment-search set-up alone costs more stops before it. Parsing, stereo perception,
     and result assembly are not interrupted. The optional global check has its own additional
-    budget. Expiry sets status to "timed_out" and includes "virtual" in
+    budget. Expiry sets status to "timed_out" and includes "work" in
     metadata["budget"]["stopped_by"]."""
     wall_guard_factor: float = 10.0
     """The wall-clock guard, as a multiple of ``work_limit`` in real seconds from the
