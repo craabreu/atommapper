@@ -1,6 +1,7 @@
 import pytest
 from rdkit import Chem
 
+from atommapper import map_atoms
 from atommapper.stereo import stereo_verdicts
 
 
@@ -105,3 +106,32 @@ def test_specification_decides_before_the_neighbour_order():
     assert [s for _, s, _, _ in verdicts("CCC[C@H](F)Cl", "CCCC(Br)I", first_four)] == ["lost"]
     assert [s for _, s, _, _ in verdicts("CCCC(Br)I", "CCC[C@H](F)Cl", first_four)] == ["gained"]
     assert [s for _, s, _, _ in verdicts("CCCC(F)Cl", "CCCC(Br)I", first_four)] == ["unspecified"]
+
+
+# A centre between two chains of sixteen cyclohexanes that differ only at their ends: RDKit's
+# CIP digraph for it outgrows 100,000 nodes and its labeler raises. The alcohol carbon at the
+# other end of the molecule is an ordinary centre.
+RINGS = "".join(f"C{k % 8 + 1}CC(CC{k % 8 + 1})" for k in range(16))
+UNLABELABLE = f"O[C@@H](C)CC[C@@](F)({RINGS}C){RINGS}N"
+EPIMER = f"O[C@H](C)CC[C@@](F)({RINGS}C){RINGS}N"
+
+
+def test_a_centre_rdkit_cannot_label_still_gets_a_verdict_without_labels():
+    found = verdicts(UNLABELABLE, EPIMER)
+    labeled = [v for v in found if v[1] != "unspecified"]
+    assert labeled == [("atom", "inverted", "S", "R"), ("atom", "retained", None, None)]
+
+
+def test_a_labeling_past_the_iteration_cap_leaves_every_label_out(monkeypatch):
+    monkeypatch.setattr("atommapper.stereo._CIP_ITERATIONS", 1)
+    assert verdicts("F[C@H](Cl)Br", "F[C@@H](Cl)Br") == [("atom", "inverted", None, None)]
+    assert verdicts("C/C=C/F", "C/C=C\\F") == [("bond", "inverted", None, None)]
+
+
+def test_map_atoms_maps_a_molecule_rdkit_cannot_label():
+    result = map_atoms(UNLABELABLE, EPIMER, allow_stereo_inversion=True)
+    stereo = [v for v in result.metadata["stereo"] if v["status"] != "unspecified"]
+    assert [(v["status"], v["source_cip"], v["target_cip"]) for v in stereo] == [
+        ("inverted", "S", "R"),
+        ("retained", None, None),
+    ]

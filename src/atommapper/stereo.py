@@ -45,12 +45,67 @@ def _perceive(mol: Chem.Mol) -> tuple[Chem.Mol, dict[Key, Chem.StereoInfo]]:
     mol = Chem.Mol(mol)
     possible = Chem.FindPotentialStereo(Chem.Mol(mol), cleanIt=True, flagPossible=True)
     specified = Chem.FindPotentialStereo(Chem.Mol(mol), cleanIt=True, flagPossible=False)
-    rdCIPLabeler.AssignCIPLabels(mol)
+    _label_cip(mol)
     elements = _by_key(mol, possible)
     elements.update(
         (key, info) for key, info in _by_key(mol, specified).items() if info.specified == _SPECIFIED
     )
     return mol, elements
+
+
+_CIP_ITERATIONS = 1_250_000
+"""RDKit's cap on the recursive comparisons of one CIP labeling, about a second by its own
+account; most molecules need fewer than 10,000. It counts comparisons, not time, so the
+labels it leaves out are the same on every machine."""
+
+
+def _label_cip(mol: Chem.Mol) -> None:
+    """Set the CIP label of every stereo element whose label RDKit can compute.
+
+    RDKit gives up on some large, repetitive molecules (a chain of a dozen rings or more on
+    each side of a centre): its digraph outgrows 100,000 nodes, or the labeling passes
+    ``_CIP_ITERATIONS``, and it raises ``RuntimeError``, leaving the labels it had set by
+    then. The labels are reported only and never decide a verdict, so such a molecule is
+    still mapped: its labels are cleared and set again one atom at a time, and an atom whose
+    label fails has none. A bond is labeled on a copy, since RDKit labels every atom along
+    with a bond; in a molecule where some atom's label fails, the bonds' labels may then
+    fail too.
+    """
+    try:
+        rdCIPLabeler.AssignCIPLabels(mol, maxRecursiveIterations=_CIP_ITERATIONS)
+        return
+    except RuntimeError:
+        pass
+    for obj in (*mol.GetAtoms(), *mol.GetBonds()):
+        obj.ClearProp("_CIPCode")
+    for atom in mol.GetAtoms():
+        if atom.GetChiralTag() == Chem.ChiralType.CHI_UNSPECIFIED:
+            continue
+        try:
+            rdCIPLabeler.AssignCIPLabels(
+                mol,
+                atomsToLabel=[atom.GetIdx()],
+                bondsToLabel=[],
+                maxRecursiveIterations=_CIP_ITERATIONS,
+            )
+        except RuntimeError:
+            atom.ClearProp("_CIPCode")
+    for bond in mol.GetBonds():
+        if bond.GetStereo() == Chem.BondStereo.STEREONONE:
+            continue
+        copy = Chem.Mol(mol)
+        try:
+            rdCIPLabeler.AssignCIPLabels(
+                copy,
+                atomsToLabel=[],
+                bondsToLabel=[bond.GetIdx()],
+                maxRecursiveIterations=_CIP_ITERATIONS,
+            )
+        except RuntimeError:
+            continue
+        labeled = copy.GetBondWithIdx(bond.GetIdx())
+        if labeled.HasProp("_CIPCode"):
+            bond.SetProp("_CIPCode", labeled.GetProp("_CIPCode"))
 
 
 def _by_key(mol: Chem.Mol, infos: Sequence[Chem.StereoInfo]) -> dict[Key, Chem.StereoInfo]:
