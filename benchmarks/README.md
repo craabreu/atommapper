@@ -225,3 +225,15 @@ python benchmarks/compare_lomap.py summary results.jsonl
 Each row produces one JSONL record containing timings, errors, timeout indicators, kept
 counts, change sizes, constraint checks, and symmetry keys for all six method/element-mode
 combinations. Drawing and the post-call comparison checks are excluded from mapping times.
+
+## The calibration benchmark
+
+`make_calibration_pairs.py` is not part of the comparison above. It writes
+`src/atommapper/calibration_pairs.tsv`, the benchmark that `atommapper calibrate` maps: 300
+calls on synthetic molecules, put together by the script from building blocks of its own
+(no molecule comes from a database), the same file on every run:
+
+```bash
+python benchmarks/make_calibration_pairs.py          # write the file again
+python benchmarks/make_calibration_pairs.py --check  # exit 1 if the file differs
+```

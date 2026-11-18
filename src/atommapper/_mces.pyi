@@ -16,4 +16,15 @@ def fragments(
     rings: tuple[list[bool], list[bool], list[bool], list[bool]] | None = None,
     time_limit_s: float | None = None,
     known_score: int = 0,
-) -> tuple[list[tuple[list[tuple[int, int]], list[int]]], int, str | None, bool, int, int, int]: ...
+    work_limit: int | None = None,
+    work_costs: tuple[int, int, int, int] = (0, 0, 0, 0),
+) -> tuple[
+    list[tuple[list[tuple[int, int]], list[int]]],
+    int,
+    str | None,
+    bool,
+    int,
+    int,
+    int,
+    tuple[int, int, int, int],
+]: ...

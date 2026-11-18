@@ -60,6 +60,10 @@ from with them forbidden, so allowing them never gives a larger change (unless a
 the time limit stops the search). The seeds are kept whole, so the result is optimal
 given them, not optimal: when the largest fragments break another rule, the optimum may
 hold no seed, and the result can then be far from it (README, "Limits").
+
+The time limit is counted in work, not read from a clock (``clock``): every stage advances
+the call's virtual clock, and a stage stops when that clock, or the wall-clock guard behind
+it, says so.
 """
 
 import time
@@ -70,7 +74,9 @@ from typing import Any
 from rdkit import Chem
 
 from . import _mces
+from . import clock as clocks
 from .adapter import MolView, build_view, parse
+from .clock import VirtualClock
 from .coloring import coloring
 from .cost import change_size, global_bound, kept_counts, lomap_weights
 from .errors import UnsupportedInput
@@ -531,7 +537,7 @@ def _connected_fragments(
     settings: Settings,
     label: Callable[[Mapping[str, Any]], tuple[Any, ...]],
     max_steps: int,
-    deadline: float | None = None,
+    clock: VirtualClock,
     known_score: int = 0,
 ) -> tuple[list[dict[int, int]], int, str | None, bool, int]:
     """The connected common fragments on the atom labels ``label`` gives that seed the
@@ -540,7 +546,8 @@ def _connected_fragments(
     thread through rings and lose most of their atoms to the trim. ``known_score`` is a
     trimmed score some common fragment is known to reach (the search starts from it, and
     starts again from zero if no fragment it scores reaches it); the last value returned
-    is the best trimmed score found."""
+    is the best trimmed score found. The engine's work advances ``clock``, and what the
+    clock has left is the engine's work limit."""
     src = _ordered(source.alignment, source.ranks)
     tgt = _ordered(target.alignment, target.ranks)
     keys = sorted(
@@ -554,16 +561,19 @@ def _connected_fragments(
     _, target_bonds = _arrays(target.alignment, tgt, {k: 0 for k in _colors(target)})
     if not source_bonds or not target_bonds or max_steps <= 0:
         return [], 0, None if max_steps > 0 else "steps", False, known_score
-    left = remaining(deadline)
+    if clock.expired:
+        return [], 0, "virtual", False, known_score
+    left = remaining(clock.deadline)
     if left is not None and left <= 0:
         return [], 0, "time", False, known_score
+    rates = clock.rates
     rings = (
         [v in rules.source_ring_atoms for v in src],
         [(src[a], src[b]) in rules.source_ring_bonds for a, b in source_bonds],
         [v in rules.target_ring_atoms for v in tgt],
         [(tgt[a], tgt[b]) in rules.target_ring_bonds for a, b in target_bonds],
     )
-    fragments, steps, stop, truncated, _split, _pairs, best_score = _mces.fragments(
+    fragments, steps, stop, truncated, _split, _pairs, best_score, work = _mces.fragments(
         source_labels,
         source_bonds,
         target_labels,
@@ -576,7 +586,11 @@ def _connected_fragments(
         rings=rings,
         time_limit_s=left,
         known_score=known_score,
+        work_limit=clock.left,
+        work_costs=(rates.relation_pair, rates.step, rates.word, rates.leaf_bond),
     )
+    for name, units in zip(("relation_pair", "step", "word", "leaf_bond"), work, strict=True):
+        clock.charge(name, units)
     out = [{src[a]: tgt[b] for a, b in atoms} for atoms, _bonds in fragments]
     return out, steps, stop, truncated, best_score
 
@@ -586,7 +600,8 @@ def _shift_seeds(
     target: MolView,
     rules: _Rules,
     fragments: Iterable[Mapping[int, int]],
-    deadline: float,
+    clock: VirtualClock,
+    size: int,
 ) -> tuple[list[dict[int, int]], bool]:
     """Single pairs that seed the search when a trim drops atoms of a fragment for an
     inverted stereo element: each dropped source atom with every target atom of the
@@ -595,14 +610,15 @@ def _shift_seeds(
     often pairs them otherwise (a chain shifted along a double bond, two arms of a centre
     swapped); a correspondence grows from any one of its pairs, and these are its likeliest
     ones. With inversions allowed they come from the strict trims, which seed that search
-    too (``_Rules.trimmed_pieces``). The second value says the deadline passed before every
-    fragment was read; then none is returned."""
+    too (``_Rules.trimmed_pieces``). The second value says a clock stopped the stage before
+    every fragment was read; then none is returned. ``size`` is the unit of the work."""
     out = []
     for fragment in fragments:
-        if time.perf_counter() > deadline:
-            # Shift seeds follow the others, and past the deadline only the first seed is
+        if clock.late():
+            # Shift seeds follow the others, and past the limit only the first seed is
             # refined: none of them would be.
             return [], True
+        clock.charge("piece", size)
         dropped = rules.stereo_dropped(fragment)
         if not dropped:
             continue
@@ -611,8 +627,11 @@ def _shift_seeds(
             color = source.alignment.nodes[s]["color"]
             for t in targets:
                 pair = {s: t}
-                if target.alignment.nodes[t]["color"] == color and rules.accept(pair):
-                    out.append(pair)
+                if target.alignment.nodes[t]["color"] == color:
+                    clock.charge("piece", size)
+                    if rules.accept(pair):
+                        out.append(pair)
+    clock.charge("piece", len(out) * size)
     return dedupe(out, source, target), False
 
 
@@ -657,7 +676,9 @@ def map_atoms(
         Allow a mapped tetrahedral centre or double bond to invert and count each
         inversion as one change. Inversions appear in the change lists and stereo metadata.
     settings : Settings or None, default None
-        Search budgets and limits. None uses Settings(), including a 60-second time limit.
+        Search budgets and limits. None uses Settings(), including a time limit of 60
+        virtual seconds (counted in work, so the same calls stop on every machine; a
+        virtual second is a second of the reference machine, see ``calibrate``).
 
     Returns
     -------
@@ -695,6 +716,9 @@ def map_atoms(
     settings = settings or Settings()
     colors = coloring("ring" if element_change else "element-ring")
     start = time.perf_counter()
+    clock = VirtualClock(
+        settings.time_limit_s, clocks.REFERENCE_RATES, settings.wall_guard_factor, start
+    )
     source_mol = parse(source, "source")
     target_mol = parse(target, "target")
     try:
@@ -708,7 +732,7 @@ def map_atoms(
             settings,
             objective,
             colors.element_hard,
-            start + settings.time_limit_s,
+            clock,
         )
     except UnsupportedInput as error:
         return unsupported(str(error), settings)
@@ -739,7 +763,7 @@ def map_atoms(
         reason=REASONS[status],
         metadata=metadata,
     )
-    result.metadata["timings"] = {"total": time.perf_counter() - start}
+    result.metadata["timings"]["total"] = time.perf_counter() - start
     return result
 
 
@@ -750,9 +774,16 @@ def _search(
     settings: Settings,
     objective: str,
     element_hard: bool,
-    deadline: float,
+    clock: VirtualClock,
 ) -> tuple[dict[int, int], dict[int, str], dict[str, Any]]:
     allow = rules.allow_stereo_inversion
+    # The unit of the Python stages' work: each step of theirs reads both molecules whole.
+    size = sum(
+        graph.number_of_nodes() + graph.number_of_edges()
+        for graph in (source.alignment, target.alignment)
+    )
+    clock.charge("call", size)
+    began = time.perf_counter()
     inversions = rules.max_inversions if allow else 0
     weights = (
         lomap_weights(source.alignment, target.alignment, inversions)
@@ -785,7 +816,7 @@ def _search(
             settings,
             label,
             limit,
-            deadline,
+            clock,
             known_score=known,
         )
         found_by_label[label] = found
@@ -798,48 +829,52 @@ def _search(
             stops.add(stop)
     fragments = [fragment for label in labels for fragment in found_by_label[label]]
     fragment_stop = ",".join(sorted(stops)) or None
-    # Seeding reads the clock too: on pairs with thousands of fragments it takes seconds.
-    # Past the deadline, the seeds made so far are searched (refinement stops at once) and
-    # the call reports "time".
+    fragments_done = time.perf_counter()
+    # Seeding advances the clock too: on pairs with thousands of fragments it takes seconds.
+    # Past the limit, the seeds made so far are searched (refinement stops at once) and
+    # the call reports which clock stopped it.
     late = False
+    trims = 4 if allow else 2
     pieces: list[dict[int, int]] = []
     for fragment in fragments:
-        # The first fragment that yields a piece is trimmed even past the deadline: when the
+        # The first fragment that yields a piece is trimmed even past the limit: when the
         # clock stopped the fragment search, dropping it would leave only a single-atom seed.
-        if pieces and time.perf_counter() > deadline:
+        if pieces and clock.late():
             late = True
             break
+        clock.charge("trim", trims * size)
         pieces += rules.trimmed_pieces(fragment)
-    late |= time.perf_counter() > deadline
+    late = late or clock.late()
     turned_pieces = []
     for piece in pieces:
         if late:
             break
-        if time.perf_counter() > deadline:
+        if clock.late():
             late = True
             break
-        turned_pieces += [
-            turned for turned in rules.with_bonds_reversed(piece) if rules.accept(turned)
-        ]
+        turned = rules.with_bonds_reversed(piece)
+        clock.charge("piece", (1 + len(turned)) * size)
+        turned_pieces += [mapping for mapping in turned if rules.accept(mapping)]
     pieces += turned_pieces
     if late:
-        # Past the deadline only the first seed is refined: keep the first largest piece
+        # Past the limit only the first seed is refined: keep the first largest piece
         # rather than rank thousands, which takes a large part of a second.
         pieces = [max(pieces, key=len)] if pieces else []
+    clock.charge("piece", len(pieces) * size)
     seeds = dedupe(pieces, source, target)
     if not seeds:
         # No common bond survives the rules: a single kept atom may still, any chain atom.
-        # Past the deadline, the first one is kept rather than rank them all.
-        accepted = (
-            pair for pair in single_pairs(source.alignment, target.alignment) if rules.accept(pair)
-        )
+        # Past the limit, the first one is kept rather than rank them all.
+        singles = single_pairs(source.alignment, target.alignment)
+        accepted = (pair for pair in singles if rules.accept(pair))
         if late:
             first = next(accepted, None)
             seeds = [first] if first is not None else []
         else:
+            clock.charge("piece", 2 * len(singles) * size)
             seeds = dedupe(list(accepted), source, target)
     shifts, shifts_late = (
-        ([], True) if late else _shift_seeds(source, target, rules, fragments, deadline)
+        ([], True) if late else _shift_seeds(source, target, rules, fragments, clock, size)
     )
     late |= shifts_late
     keys = {canonical_key(seed, source.classes, target.classes) for seed in seeds}
@@ -858,7 +893,7 @@ def _search(
             source.alignment,
             target.alignment,
             anchors,
-            deadline=deadline,
+            deadline=clock.deadline,
             max_nodes=max_nodes,
             max_alternatives=settings.max_alternatives,
             source_rank=source.ranks,
@@ -870,14 +905,18 @@ def _search(
             bound=min((done.cost for done, _ in solved), default=None),
             weights=weights,
             extra_cost=rules.inversion_cost if allow else None,
+            clock=clock,
+            node_units=size,
         )
 
+    seeding_done = time.perf_counter()
     for index, seed in enumerate(seeds):
-        # Past the deadline, the seeds not yet refined are left out: each would still cost
+        # Past the limit, the seeds not yet refined are left out: each would still cost
         # a refinement set-up (a large part of a second over thousands of seeds).
-        if solved and time.perf_counter() > deadline:
+        if solved and clock.late():
             late = True
             break
+        clock.charge("seed", size)
         # Lone atoms (no bond on either side) are paired around each seed, with what the
         # seed leaves: a seed may hold a lone atom's best partner.
         anchors = {
@@ -897,22 +936,24 @@ def _search(
     )
     retries = 0
     for index, k in enumerate(stopped):
-        if time.perf_counter() > deadline:
-            # A retry past the deadline would pay its set-up only to stop at once.
+        if clock.late():
+            # A retry past the limit would pay its set-up only to stop at once.
             late = True
             break
         first, anchors = solved[k]
         share = nodes_left // (len(stopped) - index)
         if share <= first.nodes:
             continue
+        clock.charge("seed", size)
         out = attempt(anchors, share)
         retries += 1
         nodes_left -= out.nodes
         nodes_used += out.nodes
         if out.complete or out.cost <= first.cost + EPS:
             solved[k] = (out, anchors)
-    reasons = set(stops) | ({"time"} if late else set())
+    reasons = set(stops) | clock.stops
     reasons |= {out.stopped_by for out, _ in solved if out.stopped_by}
+    refinement_done = time.perf_counter()
     best = min(out.cost for out, _ in solved)
     tied = [(out, anchors) for out, anchors in solved if out.cost <= best + EPS]
     # The tie-break over every tied mapping, not only each seed's first in canonical order
@@ -963,6 +1004,14 @@ def _search(
             "steps_used": steps,
             "retries": retries,
             "stopped_by": ",".join(sorted(reasons)) or None,
+            "virtual_s": clock.seconds,
+            "work": dict(clock.work),
+        },
+        # Wall times of the stages, reported only: nothing reads them to decide anything.
+        "timings": {
+            "fragment_search": fragments_done - began,
+            "seeding": seeding_done - fragments_done,
+            "refinement": refinement_done - seeding_done,
         },
     }
     return mapping, tags, meta

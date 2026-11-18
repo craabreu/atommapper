@@ -7,6 +7,7 @@ from typing import Any
 
 import networkx as nx
 
+from .clock import VirtualClock
 from .cost import FORBIDDEN, change_size
 from .graph import OrderKey, tie_order
 
@@ -25,7 +26,8 @@ class RefineOutcome:
     alternatives_capped: bool
     nodes: int
     stopped_by: str | None
-    """``"nodes"`` when the node budget ran out, ``"time"`` when the clock did, else None."""
+    """``"nodes"`` when the node budget ran out, ``"virtual"`` when the virtual clock did,
+    ``"time"`` when the wall clock did, else None."""
 
 
 def refine(
@@ -46,6 +48,8 @@ def refine(
     bound: float | None = None,
     weights: tuple[int, int] = (1, 1),
     extra_cost: Callable[[Mapping[int, int]], float] | None = None,
+    clock: VirtualClock | None = None,
+    node_units: int = 0,
 ) -> RefineOutcome:
     """Lowest-cost correspondence grown from the anchors through kept bonds.
 
@@ -72,7 +76,9 @@ def refine(
     stereocentres.
 
     The search stops after ``max_nodes`` branch-and-bound nodes, which makes the result
-    independent of machine speed and load; ``deadline`` is the call's wall-clock limit.
+    independent of machine speed and load, and so does ``clock``, when given: each node
+    advances it by ``node_units`` units of its ``node`` rate, and the search stops when it
+    is past its limit. ``deadline`` is the call's wall-clock limit.
     """
     search = _BranchAndBound(
         source,
@@ -90,6 +96,7 @@ def refine(
         weights,
         extra_cost,
     )
+    search.clock, search.node_units = clock, node_units
     search.max_nodes = max_nodes
     search.run()
     if search.alternatives:
@@ -168,6 +175,8 @@ class _BranchAndBound:
             self.best_cost, self.alternatives, self.seen = bound, [], set()
         self.capped = False
         self.max_nodes = 0
+        self.clock: VirtualClock | None = None
+        self.node_units = 0
         self.nodes = 0
         self.stopped_by: str | None = None
         # Plain copies of what the lower bound reads at every node.
@@ -186,6 +195,11 @@ class _BranchAndBound:
         if self.nodes >= self.max_nodes:
             self.stopped_by = "nodes"
             return
+        if self.clock is not None:
+            if self.clock.expired:
+                self.stopped_by = "virtual"
+                return
+            self.clock.charge("node", self.node_units)
         if time.perf_counter() > self.deadline:
             self.stopped_by = "time"
             return

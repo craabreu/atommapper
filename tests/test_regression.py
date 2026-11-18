@@ -80,9 +80,10 @@ def test_the_time_limit_bounds_the_whole_call_the_fragment_search_included():
     result = map_atoms(*DENDRIMERS, settings=Settings(time_limit_s=0.2))
     elapsed = time.perf_counter() - start
     assert result.status == "timed_out"
-    assert result.metadata["fragment_search"]["stopped_by"] == "time"
-    assert "time" in result.metadata["budget"]["stopped_by"].split(",")
-    # The fragments found by the deadline still seed the search: map_atoms once
+    # The limit is counted in work (tests/test_clock.py): "virtual", not "time".
+    assert result.metadata["fragment_search"]["stopped_by"] == "virtual"
+    assert result.metadata["budget"]["stopped_by"] == "virtual"
+    # The fragments found by the limit still seed the search: map_atoms once
     # dropped them all and fell back to a single atom pair.
     assert len(result.mapping) > 1
     assert elapsed < 0.2 + 1.0
@@ -91,7 +92,7 @@ def test_the_time_limit_bounds_the_whole_call_the_fragment_search_included():
 def test_a_zero_time_limit_searches_nothing_and_says_so():
     result = map_atoms("Cc1ccc(F)cc1", "Cc1cccc(F)c1", settings=Settings(time_limit_s=0.0))
     assert result.status == "timed_out"
-    assert result.metadata["fragment_search"]["stopped_by"] == "time"
+    assert result.metadata["fragment_search"]["stopped_by"] == "virtual"
     assert result.metadata["fragment_search"]["steps"] == 0
 
 
@@ -105,41 +106,49 @@ def test_a_nan_time_limit_is_rejected_by_settings():
 
 def test_the_time_limit_bounds_the_set_up_of_a_large_search_graph():
     # 19,460 bond pairs: building the search graph took 1.7 s, so a 0.2 s limit
-    # took 2.2 s before the engine read the clock there.
+    # took 2.2 s before the engine read the clock there. The set-up is now charged to
+    # the virtual clock before it starts, and is not done.
     start = time.perf_counter()
     result = map_atoms("C" * 140, "C" * 141, settings=Settings(time_limit_s=0.2))
     elapsed = time.perf_counter() - start
     assert result.status == "timed_out"
-    assert result.metadata["fragment_search"]["stopped_by"] == "time"
+    assert result.metadata["fragment_search"]["stopped_by"] == "virtual"
     assert elapsed < 0.2 + 1.0
 
 
-# Two dimeric morphinans (MoleculeACE, CHEMBL237). With elements free to change, the
-# fragment search runs on element labels (4,550 steps here) and then on ring and chain
-# labels alone, the coarse pass: 394,221 steps (about 10 s) that find no better fragment.
-MORPHINAN_DIMERS = (
-    "c1cc2c(cc1OCCCCCCCCCCOc1ccc3c(c1)[C@@]14CCCC[C@H]1[C@@H](C3)N(CC1CCC1)CC4)"
-    "[C@@]13CCCC[C@H]1[C@@H](C2)N(CC1CCC1)CC3",
-    "Oc1cc2c(cc1CNCCCCCCNCc1cc3c(cc1O)[C@@]14CCCC[C@H]1[C@@H](C3)N(CC1CCC1)CC4)"
-    "C[C@@H]1[C@@H]3CCCC[C@]23CCN1CC1CCC1",
+# Two synthetic dimers: twice a ring system on a benzene ring, joined through a chain of six
+# carbons. The first is a tricycle with a spiro oxolane, on an ether chain; the second a
+# chromane fused to an N-methylpiperidine, on a chain of two amines. With elements free to
+# change, the fragment search runs on element labels (39,873 steps here) and then on ring
+# and chain labels alone, the coarse pass: 232,683 steps that find no better fragment.
+RING_SYSTEM = "c1ccc2c(c1)CC1CCCC3(CCOC3)C21"
+OTHER_RING_SYSTEM = "c1ccc2c(c1)OC1CCN(C)CC1C2"
+DIMERS = (
+    f"O(CCCCCCO{RING_SYSTEM}){RING_SYSTEM}",
+    f"N(CCCCCCNC{OTHER_RING_SYSTEM})C{OTHER_RING_SYSTEM}",
 )
 
 
 def test_the_coarse_pass_stops_at_its_cap_and_the_call_completes():
-    result = map_atoms(*MORPHINAN_DIMERS, allow_stereo_inversion=True)
+    result = map_atoms(*DIMERS, allow_stereo_inversion=True)
     search = result.metadata["fragment_search"]
     assert result.status == "complete"
     assert search["coarse_capped"] is True
     assert search["stopped_by"] is None
-    assert search["steps"] <= 4_550 + Settings().coarse_fragment_steps
-    # The change the uncapped search finds (coarse_fragment_steps=1_000_000, 10 s).
-    assert result.metadata["size"] == 142
+    assert search["steps"] <= 39_873 + Settings().coarse_fragment_steps
+    # The change the uncapped search finds (coarse_fragment_steps=20_000_000), and what the
+    # molecules give: 42 + 49 and 40 + 45 atoms and bonds; the ring systems differ, so one
+    # benzene ring and the chain between the two halves are kept (14 atoms, 14 bonds):
+    # 176 - 56 = 120; and three atoms of the chain change element, two oxygens onto carbons
+    # and a carbon onto a nitrogen.
+    assert result.metadata["size"] == 123
+    assert result.metadata["kept"] == {"atoms": 14, "bonds": 14}
 
 
 def test_the_step_budget_running_out_in_the_coarse_pass_is_a_stop_not_the_cap():
-    # 4,550 steps on element labels leave the coarse pass fewer than its cap.
+    # 39,873 steps on element labels leave the coarse pass fewer than its cap.
     result = map_atoms(
-        *MORPHINAN_DIMERS, allow_stereo_inversion=True, settings=Settings(fragment_steps=50_000)
+        *DIMERS, allow_stereo_inversion=True, settings=Settings(fragment_steps=50_000)
     )
     assert result.status == "timed_out"
     assert result.metadata["fragment_search"]["stopped_by"] == "steps"

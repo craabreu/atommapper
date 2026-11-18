@@ -233,14 +233,46 @@ result = map_atoms(
 |---|---:|---|---|
 | `fragment_steps` | 20,000,000 | Total fragment-search work budget | `--steps` |
 | `node_budget` | 1,000,000 | Total branch-and-bound work budget | `--nodes` |
-| `time_limit_s` | 60.0 | Wall-clock limit measured from the start of the call | `--timeout` |
+| `time_limit_s` | 60.0 | Limit in virtual seconds: seconds of the reference machine, counted in work (no clock is read) | `--timeout` |
+| `wall_guard_factor` | 10.0 | Wall-clock guard, as a multiple of `time_limit_s` | Python only |
 | `fragment_bond_pairs` | 20,000 | Ceiling on compatible bond pairs in the fragment search | `--pairs` |
 | `coarse_fragment_steps` | 100,000 | Work cap for the element-independent fragment pass | Python only |
 
-Work budgets make the stopping point reproducible, provided the wall-clock limit does
-not intervene. Clock-limited results depend on machine speed and load. The time limit is
-not a hard process deadline: parsing, stereo perception, and result assembly are not
+The work budgets and the time limit make the stopping point reproducible. The time limit
+is a virtual clock: each stage counts its work, and the clock advances by a fixed amount
+per unit. The same calls therefore stop on every machine and under any load, with
+`virtual` among the stop reasons, and a pair whose fragment-search set-up alone costs more
+than the limit stops before the search. CPLEX's deterministic time limit and Gurobi's
+`WorkLimit` are the same device.
+
+The amounts per unit are a constant of the package, the reference clock
+(`atommapper.clock.REFERENCE_RATES`): one virtual second is one second of the reference
+machine, an AMD Ryzen Threadripper PRO 5975WX running eight calls at a time (with all 32
+cores busy, the same calls took about 1.8 times as long). `time_limit_s` is the only knob.
+Results made on two machines are comparable when it is the same; the name of the clock is
+in `Settings().reference_clock` and in `metadata["versions"]["clock"]`, so results cached
+by their settings do not mix if a later version fits the rates again.
+
+The wall clock remains as a guard, at `wall_guard_factor` times the limit in real seconds:
+a call it stops reports `time` and does depend on machine speed and load. Neither clock is
+a hard process deadline: parsing, stereo perception, and result assembly are not
 interrupted. The optional global check described below has its own additional budget.
+
+To see what a virtual second is worth on your machine, calibrate:
+
+```bash
+atommapper calibrate --wall-seconds 10 --workers 1
+```
+
+or `atommapper.calibrate(10.0, workers=1)` in Python. It maps a benchmark shipped with
+the package (300 calls on synthetic molecules, about two minutes on one core of the
+reference machine; `benchmarks/make_calibration_pairs.py` builds it), reports the wall
+seconds per virtual second (median, 5th and 95th percentiles, per stage too; on the
+reference machine its slow calls give 1.02 with eight calls at a time and 0.97 with one)
+and suggests the `time_limit_s` that takes the wall time you asked for. Run it with the
+number of workers the real work will use. Results are comparable across machines only at the same
+`time_limit_s`: a calibrated limit gives up exact comparability with results made at
+another limit.
 
 Reaching the coarse-pass cap is part of the normal method and does not set `timed_out`;
 inspect `metadata["fragment_search"]["coarse_capped"]`. The bond-pair ceiling protects

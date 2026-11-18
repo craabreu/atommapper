@@ -1,7 +1,10 @@
 """Budgets and limits of a mapping call."""
 
+import dataclasses
 import math
 from dataclasses import dataclass, fields
+
+from .clock import reference_id
 
 _COUNTS = {
     # field: smallest value allowed
@@ -21,8 +24,9 @@ class Settings:
     """Configure the work budgets, time limit, and candidate caps for ``map_atoms``.
 
     Pass an instance as ``map_atoms(source, target, settings=Settings(...))``. Defaults
-    suit drug-like molecular pairs. Work budgets give reproducible stopping points
-    provided the wall-clock limit does not intervene. A limit can return a partial
+    suit drug-like molecular pairs. The work budgets and the time limit, which is counted
+    in work and not read from a clock (``atommapper.clock``), give reproducible stopping
+    points provided the wall-clock guard does not intervene. A limit can return a partial
     result with status "timed_out"; the coarse-pass cap is part of the normal search.
 
     Counts must be integers, and time budgets must be nonnegative numbers. Invalid
@@ -34,11 +38,21 @@ class Settings:
     """Total branch-and-bound nodes, shared across seeds. Exhaustion sets status to
     "timed_out" and includes "nodes" in metadata["budget"]["stopped_by"]."""
     time_limit_s: float = 60.0
-    """Wall-clock search limit, measured from the start of the call. Fragment search,
-    seeding, and refinement check it periodically. Parsing, stereo perception, and result
-    assembly are not interrupted, so this is not a hard process deadline. The optional
-    global check has its own additional budget. Expiry sets status to "timed_out" and
-    includes "time" in metadata["budget"]["stopped_by"]."""
+    """Search limit in virtual seconds: the work of the call, timed by the reference clock
+    (``atommapper.clock.REFERENCE_RATES``), on which a virtual second is a second of the
+    reference machine. No clock is read, so the same calls stop on every machine; results
+    made on two machines are comparable when the limit is the same. ``atommapper.calibrate``
+    reports how long a virtual second takes on the machine at hand. Fragment search,
+    seeding, and refinement check the limit at every step; a pair whose fragment-search
+    set-up alone costs more stops before it. Parsing, stereo perception, and result
+    assembly are not interrupted. The optional global check has its own additional
+    budget. Expiry sets status to "timed_out" and includes "virtual" in
+    metadata["budget"]["stopped_by"]."""
+    wall_guard_factor: float = 10.0
+    """The wall-clock guard, as a multiple of ``time_limit_s`` in real seconds from the
+    start of the call. It is a safety net for a machine much slower than the reference
+    one; a call it stops depends on machine speed and load, has status "timed_out", and
+    includes "time" in metadata["budget"]["stopped_by"]. Infinity turns the guard off."""
     fragment_steps: int = 20_000_000
     """Total fragment-search steps across all passes. Exhaustion sets status to
     "timed_out" and includes "steps" in metadata["budget"]["stopped_by"]."""
@@ -67,6 +81,11 @@ class Settings:
     max_alternatives: int = 16
     """Maximum tied mappings retained per seed for tie-breaking. When capped,
     metadata["ambiguity"]["lower_bound"] indicates that its count may be incomplete."""
+    reference_clock: str = dataclasses.field(default_factory=reference_id, init=False)
+    """The name of the rates the virtual clock runs on (``atommapper.clock.CLOCK_ID``).
+    Not a setting to choose: the rates are a constant of the package. It is here so that
+    whatever identifies results by their settings, a cache key for one, changes when the
+    rates do."""
 
     def __post_init__(self) -> None:
         """Reject a bad value when the settings are built, not deep inside a search."""
@@ -81,5 +100,10 @@ class Settings:
             elif name in _SECONDS:
                 if isinstance(value, bool) or not isinstance(value, int | float):
                     raise TypeError(f"{name} must be a number of seconds, got {value!r}")
+                if math.isnan(value) or value < 0:
+                    raise ValueError(f"{name} must not be negative or NaN, got {value}")
+            elif name == "wall_guard_factor":
+                if isinstance(value, bool) or not isinstance(value, int | float):
+                    raise TypeError(f"{name} must be a number, got {value!r}")
                 if math.isnan(value) or value < 0:
                     raise ValueError(f"{name} must not be negative or NaN, got {value}")

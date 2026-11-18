@@ -7,7 +7,9 @@ pub mod engine;
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::engine::{maximal_fragments, ring_fragments, FragmentLimits, Graph, Rings, Stop};
+    use crate::engine::{
+        maximal_fragments, ring_fragments, FragmentLimits, Graph, Rings, Stop, WorkCosts,
+    };
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use std::time::{Duration, Instant};
@@ -49,6 +51,7 @@ mod python {
             Stop::Steps => "steps",
             Stop::Pairs => "pairs",
             Stop::Time => "time",
+            Stop::Work => "virtual",
         }
     }
 
@@ -60,6 +63,7 @@ mod python {
         usize,
         usize,
         usize,
+        (u64, u64, u64, u64),
     );
     type RingFlags = (Vec<bool>, Vec<bool>, Vec<bool>, Vec<bool>);
 
@@ -67,13 +71,17 @@ mod python {
     /// within a step budget (Koch's enumeration); with ``best_only``, only the largest
     /// ones (the maximum connected common edge subgraphs, every tie).
     ///
-    /// Returns ``(fragments, steps, stop, truncated, split, pairs, best_score)``. Each
+    /// Returns ``(fragments, steps, stop, truncated, split, pairs, best_score, work)``. Each
     /// fragment is ``(atoms, bonds)``: the atom pairs it induces, sorted by graph-1 atom,
     /// and the graph-1 bond indices it matches. ``stop`` is ``None``, ``"steps"``,
     /// ``"pairs"`` (more compatible bond pairs than ``max_pairs``; nothing was searched)
     /// or ``"time"`` (``time_limit_s`` seconds passed, read every ``CLOCK_EVERY`` steps,
     /// more often on large search graphs and while those are built; without it the clock
-    /// is never read). Labels are any integers; bonds must be distinct and within range.
+    /// is never read) or ``"virtual"`` (the work, at the prices ``work_costs``, cost more
+    /// than ``work_limit``; a stop that reads no clock). ``work`` counts the work done as
+    /// ``(relation_pairs, steps, words, leaf_bonds)`` (``engine::Work``) and ``work_costs`` prices
+    /// those units in the same order. Labels are any integers; bonds must be distinct and
+    /// within range.
     /// ``truncated`` means the list may not cover every common fragment (the cap was
     /// reached); ``split`` counts maximal cliques that mapped a triangle onto a
     /// three-armed star and were replaced by their consistent connected parts.
@@ -84,7 +92,7 @@ mod python {
     /// is implied; ``known_score`` is a trimmed score some common fragment is known to
     /// reach (``FragmentLimits::known_score``), and ``best_score`` the best found.
     #[pyfunction]
-    #[pyo3(signature = (labels1, bonds1, labels2, bonds2, *, max_steps, max_fragments, min_bonds, max_pairs=20_000, best_only=false, rings=None, time_limit_s=None, known_score=0))]
+    #[pyo3(signature = (labels1, bonds1, labels2, bonds2, *, max_steps, max_fragments, min_bonds, max_pairs=20_000, best_only=false, rings=None, time_limit_s=None, known_score=0, work_limit=None, work_costs=(0, 0, 0, 0)))]
     #[allow(clippy::too_many_arguments)]
     fn fragments(
         py: Python<'_>,
@@ -100,6 +108,8 @@ mod python {
         rings: Option<RingFlags>,
         time_limit_s: Option<f64>,
         known_score: usize,
+        work_limit: Option<u64>,
+        work_costs: (u64, u64, u64, u64),
     ) -> PyResult<FragmentsOut> {
         if max_fragments == 0 || min_bonds == 0 {
             return Err(PyValueError::new_err(
@@ -115,6 +125,13 @@ mod python {
             min_bonds,
             best_only,
             deadline: deadline(time_limit_s)?,
+            max_work: work_limit,
+            costs: WorkCosts {
+                relation_pair: work_costs.0,
+                step: work_costs.1,
+                word: work_costs.2,
+                leaf_bond: work_costs.3,
+            },
             known_score,
         };
         let out = match rings {
@@ -154,6 +171,12 @@ mod python {
             out.split,
             out.pairs,
             out.best_score,
+            (
+                out.work.relation_pairs,
+                out.work.steps,
+                out.work.words,
+                out.work.leaf_bonds,
+            ),
         ))
     }
 

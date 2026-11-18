@@ -5,6 +5,7 @@ import json
 import sys
 from collections.abc import Sequence
 
+from .calibration import main as calibrate_main
 from .drawing import save_image
 from .errors import InvalidInput
 from .mapper import map_atoms
@@ -88,7 +89,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--timeout",
         type=float,
         default=None,
-        help="wall-clock search limit in seconds, measured from call start (default: 60)",
+        help="search limit in virtual seconds, counted in work and not read from a clock: "
+        "seconds of the reference machine (default: 60; see 'atommapper calibrate')",
     )
     parser.add_argument(
         "--accept-partial",
@@ -96,6 +98,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="exit 0 for a partial result after a work or time limit (JSON status is unchanged)",
     )
     parser.epilog = (
+        "'atommapper calibrate' compares the virtual seconds of --timeout with seconds of "
+        "this machine (see 'atommapper calibrate --help'). "
         "exit status: 0 success, 1 invalid or unsupported input, 2 usage error, "
         "3 a work or time limit stopped the search (unless --accept-partial)"
     )
@@ -103,6 +107,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["calibrate"]:
+        return calibrate_main(argv[1:])
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.draw is not None and not args.draw.lower().endswith((".svg", ".png")):
