@@ -936,14 +936,15 @@ def _search(
     )
     retries = 0
     for index, k in enumerate(stopped):
-        if clock.late():
-            # A retry past the limit would pay its set-up only to stop at once.
-            late = True
-            break
         first, anchors = solved[k]
         share = nodes_left // (len(stopped) - index)
         if share <= first.nodes:
             continue
+        if clock.late():
+            # A retry past the limit would pay its set-up only to stop at once. Asked only
+            # when a retry would run, so a call with none to run is not reported as stopped.
+            late = True
+            break
         clock.charge("seed", size)
         out = attempt(anchors, share)
         retries += 1
