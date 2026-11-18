@@ -119,7 +119,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         node_budget=defaults.node_budget if args.nodes is None else args.nodes,
         fragment_steps=defaults.fragment_steps if args.steps is None else args.steps,
         fragment_bond_pairs=defaults.fragment_bond_pairs if args.pairs is None else args.pairs,
-        time_limit_s=defaults.time_limit_s if args.timeout is None else args.timeout,
+        work_limit=defaults.work_limit if args.timeout is None else args.timeout,
     )
     try:
         result = map_atoms(

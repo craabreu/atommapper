@@ -16,15 +16,15 @@ _COUNTS = {
     "max_alternatives": 1,
 }
 _OPTIONAL_COUNTS = {"k_seeds": 1}
-_SECONDS = ("time_limit_s", "global_budget_s")
+_SECONDS = ("work_limit", "global_budget_s")
 
 
 @dataclass(frozen=True)
 class Settings:
-    """Configure the work budgets, time limit, and candidate caps for ``map_atoms``.
+    """Configure the work budgets, work limit, and candidate caps for ``map_atoms``.
 
     Pass an instance as ``map_atoms(source, target, settings=Settings(...))``. Defaults
-    suit drug-like molecular pairs. The work budgets and the time limit, which is counted
+    suit drug-like molecular pairs. The work budgets and the work limit, which is counted
     in work and not read from a clock (``atommapper.clock``), give reproducible stopping
     points provided the wall-clock guard does not intervene. A limit can return a partial
     result with status "timed_out"; the coarse-pass cap is part of the normal search.
@@ -37,19 +37,27 @@ class Settings:
     node_budget: int = 1_000_000
     """Total branch-and-bound nodes, shared across seeds. Exhaustion sets status to
     "timed_out" and includes "nodes" in metadata["budget"]["stopped_by"]."""
-    time_limit_s: float = 60.0
-    """Search limit in virtual seconds: the work of the call, timed by the reference clock
-    (``atommapper.clock.REFERENCE_RATES``), on which a virtual second is a second of the
-    reference machine. No clock is read, so the same calls stop on every machine; results
-    made on two machines are comparable when the limit is the same. ``atommapper.calibrate``
-    reports how long a virtual second takes on the machine at hand. Fragment search,
-    seeding, and refinement check the limit at every step; a pair whose fragment-search
-    set-up alone costs more stops before it. Parsing, stereo perception, and result
-    assembly are not interrupted. The optional global check has its own additional
+    work_limit: float = 60.0
+    """Search limit on the work of the call, in virtual seconds of the reference clock
+    (``atommapper.clock.REFERENCE_RATES``). No clock is read, so the same calls stop on
+    every machine and under any load; results made on two machines are comparable when the
+    limit is the same.
+
+    In wall-clock terms, a virtual second is about one second of the reference machine (an
+    AMD Ryzen Threadripper PRO 5975WX running eight calls at a time): a call's wall time was
+    0.76 to 1.63 times its virtual time for 98% of the calls the rates were fitted on. With
+    all 32 cores of that machine busy, a virtual second took about 1.8 wall seconds. On
+    another machine the ratio follows its speed and load: ``atommapper.calibrate`` (or
+    ``atommapper calibrate``) measures it and suggests the limit that takes a given wall
+    time, at the cost of exact comparability with results made at another limit.
+
+    Fragment search, seeding, and refinement check the limit at every step; a pair whose
+    fragment-search set-up alone costs more stops before it. Parsing, stereo perception,
+    and result assembly are not interrupted. The optional global check has its own additional
     budget. Expiry sets status to "timed_out" and includes "virtual" in
     metadata["budget"]["stopped_by"]."""
     wall_guard_factor: float = 10.0
-    """The wall-clock guard, as a multiple of ``time_limit_s`` in real seconds from the
+    """The wall-clock guard, as a multiple of ``work_limit`` in real seconds from the
     start of the call. It is a safety net for a machine much slower than the reference
     one; a call it stops depends on machine speed and load, has status "timed_out", and
     includes "time" in metadata["budget"]["stopped_by"]. Infinity turns the guard off."""

@@ -1,6 +1,6 @@
 """Calibration: how the virtual seconds of the time limit compare with seconds of this machine.
 
-``Settings.time_limit_s`` is counted in work, on a reference clock (``clock``): the same
+``Settings.work_limit`` is counted in work, on a reference clock (``clock``): the same
 calls stop on every machine, and a virtual second is a second of the reference machine.
 ``calibrate`` maps a benchmark shipped with the package, the same work on every machine, and
 compares each call's wall time with its virtual time. From their ratio it suggests the
@@ -48,7 +48,7 @@ last digit: the rates were fitted on other pairs, and a second buys a little les
 eight calls run at a time than when one does."""
 
 GUIDANCE = (
-    "Results are comparable across machines only at the same time_limit_s: a calibrated "
+    "Results are comparable across machines only at the same work_limit: a calibrated "
     "limit gives up exact comparability with a preparation made at the reference limit."
 )
 
@@ -92,8 +92,8 @@ class Calibration:
     over all calls when fewer than five are slow."""
     wall_seconds: float
     """The wall time asked for."""
-    time_limit_s: float
-    """The suggested ``Settings.time_limit_s``: ``wall_seconds / factor``."""
+    work_limit: float
+    """The suggested ``Settings.work_limit``: ``wall_seconds / factor``."""
     clock: str = CLOCK_ID
 
     def __str__(self) -> str:
@@ -110,7 +110,7 @@ class Calibration:
         ]
         lines += [
             f"For about {self.wall_seconds:g} s of this machine per call at the limit, use "
-            f"time_limit_s = {self.time_limit_s:.2g} (a virtual second takes {self.factor:.2f} s "
+            f"work_limit = {self.work_limit:.2g} (a virtual second takes {self.factor:.2f} s "
             "here).",
             GUIDANCE,
         ]
@@ -121,7 +121,7 @@ def _measure(call: Call) -> tuple[float, float, dict[str, float], dict[str, floa
     """A call's wall and virtual seconds, whole and by stage. The wall-clock guard is off:
     a slow machine must do the same work."""
     source, target, allow = call
-    settings = Settings(time_limit_s=VIRTUAL_LIMIT_S, wall_guard_factor=math.inf)
+    settings = Settings(work_limit=VIRTUAL_LIMIT_S, wall_guard_factor=math.inf)
     result = map_atoms(source, target, allow_stereo_inversion=allow, settings=settings)
     budget, timings = result.metadata["budget"], result.metadata["timings"]
     return timings["total"], budget["virtual_s"], timings, stage_seconds(budget["work"])
@@ -168,14 +168,14 @@ def calibrate(
     Returns
     -------
     Calibration
-        The ratios of wall to virtual time and the suggested ``Settings.time_limit_s``.
+        The ratios of wall to virtual time and the suggested ``Settings.work_limit``.
         Printing it gives the report of ``atommapper calibrate``.
 
     Notes
     -----
     A time limit other than the one a set of results was made with gives other results
     for the pairs between the two limits, on whatever machine: results are comparable
-    across machines only at the same ``time_limit_s``.
+    across machines only at the same ``work_limit``.
 
     Examples
     --------
@@ -215,7 +215,7 @@ def calibrate(
         ratios=ratios,
         factor=factor,
         wall_seconds=wall_seconds,
-        time_limit_s=wall_seconds / factor,
+        work_limit=wall_seconds / factor,
     )
 
 
@@ -224,7 +224,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="atommapper calibrate",
         description="Map the benchmark shipped with the package and compare each call's "
-        "wall time with its virtual time, the unit of --timeout and Settings.time_limit_s. "
+        "wall time with its virtual time, the unit of --timeout and Settings.work_limit. "
         "Print their ratio and the time limit that takes --wall-seconds on this machine. "
         "About two minutes on one core of the reference machine.",
         epilog=GUIDANCE,

@@ -77,9 +77,9 @@ def test_calibrate_compares_wall_and_virtual_time_and_suggests_a_limit():
         assert 0 < ratio.p5 <= ratio.median <= ratio.p95
     # Fewer than five slow calls: the factor is the median over all of them.
     assert report.factor == report.ratios["all calls"].median
-    assert report.time_limit_s == pytest.approx(4.0 / report.factor)
+    assert report.work_limit == pytest.approx(4.0 / report.factor)
     text = str(report)
-    assert "time_limit_s = " in text and GUIDANCE in text and CLOCK_ID in text
+    assert "work_limit = " in text and GUIDANCE in text and CLOCK_ID in text
     assert REFERENCE in text
     assert "For about 4 s of this machine per call" in text
 

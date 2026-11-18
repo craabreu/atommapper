@@ -1,6 +1,6 @@
 """The virtual clock: a time limit that reads no clock.
 
-``Settings.time_limit_s`` bounds a call in virtual seconds. Each stage of the search counts
+``Settings.work_limit`` bounds a call in virtual seconds. Each stage of the search counts
 its work in units whose cost does not depend on the pair, and the virtual clock advances by
 a fixed number of picoseconds per unit (``REFERENCE_RATES``). A call stops when its virtual
 clock passes the limit, so the pairs that stop, and what they return, are the same on every

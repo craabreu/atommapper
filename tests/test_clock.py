@@ -42,7 +42,7 @@ def outcome(result) -> dict:
 
 
 def test_a_call_the_virtual_clock_stops_returns_the_same_every_time():
-    settings = Settings(time_limit_s=0.2, wall_guard_factor=NO_GUARD)
+    settings = Settings(work_limit=0.2, wall_guard_factor=NO_GUARD)
     first = map_atoms(*DENDRIMERS, settings=settings)
     assert first.status == "timed_out"
     assert first.metadata["budget"]["stopped_by"] == "virtual"
@@ -53,7 +53,7 @@ def test_a_call_the_virtual_clock_stops_returns_the_same_every_time():
 
 
 def test_a_call_the_virtual_clock_stops_returns_the_same_under_load():
-    settings = Settings(time_limit_s=0.2, wall_guard_factor=NO_GUARD)
+    settings = Settings(work_limit=0.2, wall_guard_factor=NO_GUARD)
     idle = map_atoms(*DENDRIMERS, settings=settings)
     done = threading.Event()
 
@@ -76,7 +76,7 @@ def test_a_call_the_virtual_clock_stops_returns_the_same_under_load():
 
 def test_a_refinement_the_virtual_clock_stops_returns_the_same_every_time():
     pair = NODE_HUNGRY
-    settings = Settings(time_limit_s=0.05, wall_guard_factor=NO_GUARD)
+    settings = Settings(work_limit=0.05, wall_guard_factor=NO_GUARD)
     first = map_atoms(*pair, settings=settings)
     assert first.metadata["budget"]["stopped_by"] == "virtual"
     assert first.metadata["fragment_search"]["stopped_by"] is None
@@ -85,7 +85,7 @@ def test_a_refinement_the_virtual_clock_stops_returns_the_same_every_time():
 
 
 def test_the_wall_clock_guard_does_not_fire_on_an_ordinary_pair():
-    result = map_atoms("Cc1ccc(F)cc1", "Cc1cccc(F)c1", settings=Settings(time_limit_s=10.0))
+    result = map_atoms("Cc1ccc(F)cc1", "Cc1cccc(F)c1", settings=Settings(work_limit=10.0))
     budget = result.metadata["budget"]
     assert result.status == "complete" and budget["stopped_by"] is None
     # Far from both clocks: the virtual one, and the guard at ten times the limit.
@@ -96,7 +96,7 @@ def test_the_wall_clock_guard_does_not_fire_on_an_ordinary_pair():
 
 def test_the_wall_clock_guard_does_not_fire_when_the_virtual_clock_stops_a_call():
     start = time.perf_counter()
-    result = map_atoms(*DENDRIMERS, settings=Settings(time_limit_s=0.2))
+    result = map_atoms(*DENDRIMERS, settings=Settings(work_limit=0.2))
     elapsed = time.perf_counter() - start
     # The guard is at 2 s: a virtual second is about a real one, so it is not reached.
     assert result.metadata["budget"]["stopped_by"] == "virtual"
@@ -105,7 +105,7 @@ def test_the_wall_clock_guard_does_not_fire_when_the_virtual_clock_stops_a_call(
 
 def test_a_set_up_that_costs_more_than_the_limit_stops_before_the_search():
     start = time.perf_counter()
-    result = map_atoms(*CHAINS, settings=Settings(time_limit_s=0.2))
+    result = map_atoms(*CHAINS, settings=Settings(work_limit=0.2))
     elapsed = time.perf_counter() - start
     search, budget = result.metadata["fragment_search"], result.metadata["budget"]
     assert result.status == "timed_out"
@@ -120,7 +120,7 @@ def test_a_set_up_that_costs_more_than_the_limit_stops_before_the_search():
 def test_with_the_virtual_clock_off_the_wall_clock_guard_stops_the_call(monkeypatch):
     # The rates are no setting: only a test turns the virtual clock off.
     monkeypatch.setattr(clock, "REFERENCE_RATES", ClockRates.off())
-    settings = Settings(time_limit_s=0.2, wall_guard_factor=1.0)
+    settings = Settings(work_limit=0.2, wall_guard_factor=1.0)
     start = time.perf_counter()
     result = map_atoms(*DENDRIMERS, settings=settings)
     elapsed = time.perf_counter() - start
@@ -155,7 +155,7 @@ def test_the_reference_clock_is_frozen_and_named_in_the_settings_and_the_results
     # Not a setting to choose.
     with pytest.raises(TypeError, match="reference_clock"):
         Settings(reference_clock="mine")  # ty: ignore[unknown-argument]
-    assert replace(Settings(), time_limit_s=2.0).reference_clock == CLOCK_ID
+    assert replace(Settings(), work_limit=2.0).reference_clock == CLOCK_ID
 
 
 def test_a_change_of_any_rate_changes_the_name_of_the_clock_and_a_cache_key(monkeypatch):
@@ -190,11 +190,11 @@ def test_a_change_of_any_rate_changes_the_name_of_the_clock_and_a_cache_key(monk
 def test_scaling_the_limit_is_scaling_every_rate_by_the_inverse(monkeypatch, pair, limit, factor):
     # Why the limit is the only knob: a clock `factor` times as fast with a limit `factor`
     # times as long stops the same calls at the same point.
-    reference = map_atoms(*pair, settings=Settings(time_limit_s=limit, wall_guard_factor=NO_GUARD))
+    reference = map_atoms(*pair, settings=Settings(work_limit=limit, wall_guard_factor=NO_GUARD))
     fast = ClockRates(**{name: factor * rate for name, rate in asdict(REFERENCE_RATES).items()})
     monkeypatch.setattr(clock, "REFERENCE_RATES", fast)
     scaled = map_atoms(
-        *pair, settings=Settings(time_limit_s=factor * limit, wall_guard_factor=NO_GUARD)
+        *pair, settings=Settings(work_limit=factor * limit, wall_guard_factor=NO_GUARD)
     )
     expected, found = outcome(reference), outcome(scaled)
     seconds = expected["budget"].pop("virtual_s")
@@ -203,7 +203,7 @@ def test_scaling_the_limit_is_scaling_every_rate_by_the_inverse(monkeypatch, pai
     monkeypatch.undo()
     # The limit alone, on the same rates, is another limit: a call it stopped goes further.
     longer = map_atoms(
-        *pair, settings=Settings(time_limit_s=factor * limit, wall_guard_factor=NO_GUARD)
+        *pair, settings=Settings(work_limit=factor * limit, wall_guard_factor=NO_GUARD)
     )
     if reference.status == "timed_out" and reference.metadata["fragment_search"]["steps"]:
         assert longer.metadata["budget"]["work"] != reference.metadata["budget"]["work"]

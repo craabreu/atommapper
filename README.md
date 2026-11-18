@@ -174,7 +174,7 @@ Check `status` before using a result in an automated workflow:
 from atommapper import InvalidInput, Settings, map_atoms
 
 try:
-    result = map_atoms("CCO", "CC=O", settings=Settings(time_limit_s=10.0))
+    result = map_atoms("CCO", "CC=O", settings=Settings(work_limit=10.0))
 except InvalidInput as error:
     print(f"Invalid molecule: {error}")
 else:
@@ -225,7 +225,7 @@ from atommapper import Settings, map_atoms
 
 result = map_atoms(
     "Cc1ccc(F)cc1", "Cc1cccc(F)c1",
-    settings=Settings(time_limit_s=30.0, node_budget=2_000_000),
+    settings=Settings(work_limit=30.0, node_budget=2_000_000),
 )
 ```
 
@@ -233,8 +233,8 @@ result = map_atoms(
 |---|---:|---|---|
 | `fragment_steps` | 20,000,000 | Total fragment-search work budget | `--steps` |
 | `node_budget` | 1,000,000 | Total branch-and-bound work budget | `--nodes` |
-| `time_limit_s` | 60.0 | Limit in virtual seconds: seconds of the reference machine, counted in work (no clock is read) | `--timeout` |
-| `wall_guard_factor` | 10.0 | Wall-clock guard, as a multiple of `time_limit_s` | Python only |
+| `work_limit` | 60.0 | Limit on the work of a call, in virtual seconds (about one wall second of the reference machine; see below), counted without reading a clock | `--timeout` |
+| `wall_guard_factor` | 10.0 | Wall-clock guard, as a multiple of `work_limit` | Python only |
 | `fragment_bond_pairs` | 20,000 | Ceiling on compatible bond pairs in the fragment search | `--pairs` |
 | `coarse_fragment_steps` | 100,000 | Work cap for the element-independent fragment pass | Python only |
 
@@ -248,7 +248,7 @@ than the limit stops before the search. CPLEX's deterministic time limit and Gur
 The amounts per unit are a constant of the package, the reference clock
 (`atommapper.clock.REFERENCE_RATES`): one virtual second is one second of the reference
 machine, an AMD Ryzen Threadripper PRO 5975WX running eight calls at a time (with all 32
-cores busy, the same calls took about 1.8 times as long). `time_limit_s` is the only knob.
+cores busy, the same calls took about 1.8 times as long). `work_limit` is the only knob.
 Results made on two machines are comparable when it is the same; the name of the clock is
 in `Settings().reference_clock` and in `metadata["versions"]["clock"]`, so results cached
 by their settings do not mix if a later version fits the rates again.
@@ -269,9 +269,9 @@ the package (300 calls on synthetic molecules, about two minutes on one core of 
 reference machine; `benchmarks/make_calibration_pairs.py` builds it), reports the wall
 seconds per virtual second (median, 5th and 95th percentiles, per stage too; on the
 reference machine its slow calls give 1.02 with eight calls at a time and 0.97 with one)
-and suggests the `time_limit_s` that takes the wall time you asked for. Run it with the
+and suggests the `work_limit` that takes the wall time you asked for. Run it with the
 number of workers the real work will use. Results are comparable across machines only at the same
-`time_limit_s`: a calibrated limit gives up exact comparability with results made at
+`work_limit`: a calibrated limit gives up exact comparability with results made at
 another limit.
 
 Reaching the coarse-pass cap is part of the normal method and does not set `timed_out`;

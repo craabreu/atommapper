@@ -38,7 +38,7 @@ def test_a_large_macrocycle_returns_within_budget():
     source = cyclic_peptide(chains)
     target = cyclic_peptide([*chains[:4], "C", *chains[5:]])
     start = time.perf_counter()
-    result = map_atoms(source, target, settings=Settings(time_limit_s=4.0))
+    result = map_atoms(source, target, settings=Settings(work_limit=4.0))
     elapsed = time.perf_counter() - start
     assert result.status in {"complete", "timed_out"}
     assert elapsed < 4.0 + 1.0
@@ -53,8 +53,8 @@ NODE_HUNGRY = (
 
 
 def test_results_do_not_depend_on_the_clock_when_the_node_budget_decides():
-    short = map_atoms(*NODE_HUNGRY, settings=Settings(node_budget=1000, time_limit_s=60.0))
-    long = map_atoms(*NODE_HUNGRY, settings=Settings(node_budget=1000, time_limit_s=600.0))
+    short = map_atoms(*NODE_HUNGRY, settings=Settings(node_budget=1000, work_limit=60.0))
+    long = map_atoms(*NODE_HUNGRY, settings=Settings(node_budget=1000, work_limit=600.0))
     assert short.metadata["budget"]["stopped_by"] == "nodes"
     assert short.reaction_smiles == long.reaction_smiles
     assert short.status == long.status
@@ -77,7 +77,7 @@ DENDRIMERS = (
 
 def test_the_time_limit_bounds_the_whole_call_the_fragment_search_included():
     start = time.perf_counter()
-    result = map_atoms(*DENDRIMERS, settings=Settings(time_limit_s=0.2))
+    result = map_atoms(*DENDRIMERS, settings=Settings(work_limit=0.2))
     elapsed = time.perf_counter() - start
     assert result.status == "timed_out"
     # The limit is counted in work (tests/test_clock.py): "virtual", not "time".
@@ -89,8 +89,8 @@ def test_the_time_limit_bounds_the_whole_call_the_fragment_search_included():
     assert elapsed < 0.2 + 1.0
 
 
-def test_a_zero_time_limit_searches_nothing_and_says_so():
-    result = map_atoms("Cc1ccc(F)cc1", "Cc1cccc(F)c1", settings=Settings(time_limit_s=0.0))
+def test_a_zero_work_limitearches_nothing_and_says_so():
+    result = map_atoms("Cc1ccc(F)cc1", "Cc1cccc(F)c1", settings=Settings(work_limit=0.0))
     assert result.status == "timed_out"
     assert result.metadata["fragment_search"]["stopped_by"] == "virtual"
     assert result.metadata["fragment_search"]["steps"] == 0
@@ -98,8 +98,8 @@ def test_a_zero_time_limit_searches_nothing_and_says_so():
 
 def test_a_nan_time_limit_is_rejected_by_settings():
     # NaN passes "< 0" and every deadline comparison; it used to reach the engine.
-    with pytest.raises(ValueError, match=r"time_limit_s.*NaN"):
-        Settings(time_limit_s=float("nan"))
+    with pytest.raises(ValueError, match=r"work_limit.*NaN"):
+        Settings(work_limit=float("nan"))
     with pytest.raises(ValueError, match=r"global_budget_s.*NaN"):
         Settings(global_budget_s=float("nan"))
 
@@ -109,7 +109,7 @@ def test_the_time_limit_bounds_the_set_up_of_a_large_search_graph():
     # took 2.2 s before the engine read the clock there. The set-up is now charged to
     # the virtual clock before it starts, and is not done.
     start = time.perf_counter()
-    result = map_atoms("C" * 140, "C" * 141, settings=Settings(time_limit_s=0.2))
+    result = map_atoms("C" * 140, "C" * 141, settings=Settings(work_limit=0.2))
     elapsed = time.perf_counter() - start
     assert result.status == "timed_out"
     assert result.metadata["fragment_search"]["stopped_by"] == "virtual"

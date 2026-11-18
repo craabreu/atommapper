@@ -717,7 +717,7 @@ def map_atoms(
     colors = coloring("ring" if element_change else "element-ring")
     start = time.perf_counter()
     clock = VirtualClock(
-        settings.time_limit_s, clocks.REFERENCE_RATES, settings.wall_guard_factor, start
+        settings.work_limit, clocks.REFERENCE_RATES, settings.wall_guard_factor, start
     )
     source_mol = parse(source, "source")
     target_mol = parse(target, "target")
