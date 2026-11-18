@@ -9,9 +9,9 @@ AtomMapper follows mapping constraints based on OpenFE's LOMAP: a connected core
 complete rings, and preserved stereochemistry by default. Its search engine is written
 in Rust, with a Python API and command-line interface.
 
-**In the included benchmarks, AtomMapper used 17–102× less total mapping time than
+**In the included benchmarks, AtomMapper used 17–101× less total mapping time than
 LOMAP's mapping step** across 3,529 molecular pairs. Most of the gain comes from avoiding
-LOMAP's slowest searches; the median per-pair speedup was 1.1–2.3×. With the bond-maximizing
+LOMAP's slowest searches; the median per-pair speedup was 1.1–2.2×. With the bond-maximizing
 objective, 95–98% of mappings agreed with LOMAP up to symmetry, excluding LOMAP timeouts.
 These measurements cover mapping, not similarity scoring or network planning.
 See the [benchmark results and methodology](https://github.com/craabreu/atommapper/blob/main/benchmarks/README.md).

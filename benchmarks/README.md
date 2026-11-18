@@ -1,9 +1,9 @@
 # Benchmark: AtomMapper vs. OpenFE's LOMAP mapping step
 
 Across 529 free-energy network edges and 3,000 AstraZeneca matched molecular pairs,
-**AtomMapper used 17–102× less total mapping time** than LOMAP's mapping step. The main
+**AtomMapper used 17–101× less total mapping time** than LOMAP's mapping step. The main
 advantage was avoiding the small number of very slow LOMAP searches. Median per-pair
-speedups were more modest: **1.1–2.3×**.
+speedups were more modest: **1.1–2.2×**.
 
 With `objective="bonds"`, AtomMapper agreed with LOMAP on **95–98% of completed LOMAP
 mappings**, up to symmetry. AtomMapper finished all tested pairs within its default
@@ -18,14 +18,14 @@ other molecules. See the [main README](../README.md) for installation and usage.
 
 | Dataset | Element changes | Directed mappings | AtomMapper total | LOMAP total |
 |---|---|---:|---:|---:|
-| FEP networks | Allowed | 1,058 | 19 s | 322 s |
-| FEP networks | Forbidden | 1,058 | 9 s | 967 s |
-| AZ matched pairs | Allowed | 6,000 | 190 s | 3,223 s |
-| AZ matched pairs | Forbidden | 6,000 | 68 s | 4,218 s |
+| FEP networks | Allowed | 1,058 | 19 s | 317 s |
+| FEP networks | Forbidden | 1,058 | 9 s | 960 s |
+| AZ matched pairs | Allowed | 6,000 | 165 s | 3,135 s |
+| AZ matched pairs | Forbidden | 6,000 | 68 s | 4,108 s |
 
 Totals are **sums of per-call wall-clock times**, including timed-out calls, for both
 source-to-target and target-to-source mappings. They are not the elapsed time of the
-32-worker benchmark job. Times are rounded to whole seconds; the reported 17–102× range
+32-worker benchmark job. Times are rounded to whole seconds; the reported 17–101× range
 uses the underlying timings. AtomMapper timings refer to its default `"change"`
 objective; the `"bonds"` timings were similar (see below).
 
@@ -70,41 +70,43 @@ no time includes an import.
 
 ## Results
 
-Run on 2026-11-16 on an AMD Ryzen Threadripper PRO 5975WX (32 cores, 64 threads) with 32
-workers, Python 3.12, RDKit 2026.03.6, LOMAP 3.3.0 and AtomMapper 0.1.0. No method failed
-on any pair. Each result below counts both directions, so each pair counts twice.
+Run on 2026-11-18 on an AMD Ryzen Threadripper PRO 5975WX (32 cores, 64 threads) with 32
+workers, Python 3.12, RDKit 2026.03.6, LOMAP 3.3.0 and AtomMapper 0.2.0 (commit
+`76b163b`). No method failed on any pair. Each result below counts both directions, so
+each pair counts twice.
 The two AtomMapper objectives had similar timings, with per-mapping differences of at
-most 0.35 s in this run. The figure shows the default `"change"` objective.
+most 0.69 s in this run. The figure shows the default `"change"` objective.
 
 ### Time per pair
 
 ![Log-log timing distributions: AtomMapper has a shorter slow tail, while LOMAP calls extend to its MCS timeout](timing.png)
 
 Half of LOMAP's total mapping time went to its slowest 0.8–2.3% of mappings, each
-taking at least 14 s. Calls longer than one second accounted for 85–96% of its total time,
+taking at least 13 s. Calls longer than one second accounted for 85–96% of its total time,
 while representing only 4–11% of mappings. This slow tail explains why the aggregate
 speedup is much larger than the median speedup.
 
-Calls in which an MCS search reached LOMAP's 20 s timeout accounted for 34–57% of its
-total time: 9 and 27 of the 1,058 FEP mappings (elements free and fixed), and 54 and 81
+Calls in which an MCS search reached LOMAP's 20 s timeout accounted for 33–57% of its
+total time: 9 and 27 of the 1,058 FEP mappings (elements free and fixed), and 51 and 78
 of the 6,000 AZ mappings. The timeout applies to each MCS search, not necessarily to
-the entire LOMAP call. AtomMapper's longest call in this benchmark was 3.6 s.
+the entire LOMAP call. AtomMapper's longest call in this benchmark was 3.5 s.
 
 ### Mappings
 
 The mappings are compared only where LOMAP's MCS search finished. When it times out, LOMAP
 goes on with the MCS found by then, which depends on the machine's speed and load.
-`compare_lomap.py timeouts` maps the 171 timed-out cases again with other timeouts: at 5 s
-instead of 20 s, LOMAP's mapping changes in 1 case, and at 60 s in 13, each time keeping
-more bonds, while 74 cases still time out. This tests sensitivity to the time budget; it
-is not a direct measurement on slower or faster hardware. AtomMapper finished every pair
-within its work budgets and its default 60 s limit, so no result in this run was selected
-by a wall-clock cutoff.
+`compare_lomap.py timeouts` maps the 165 timed-out cases again with other timeouts: at 5 s
+instead of 20 s, LOMAP's mapping changes in 1 case, keeping fewer bonds, and at 60 s in 13,
+each time keeping more bonds, while 72 cases still time out. This tests sensitivity to
+the time budget; it is not a direct measurement on slower or faster hardware. AtomMapper
+finished every pair within its budgets and its default work limit (60 virtual seconds,
+counted in work, not read from a clock), so no result of its in this run depends on the
+machine.
 
 | | FEP, free | FEP, fixed | AZ, free | AZ, fixed |
 |---|---|---|---|---|
-| mappings compared (both directions) | 1,049 | 1,031 | 5,946 | 5,919 |
-| same mapping as LOMAP, up to symmetry (bonds) | 98.1% | 95.9% | 95.3% | 96.2% |
+| mappings compared (both directions) | 1,049 | 1,031 | 5,949 | 5,922 |
+| same mapping as LOMAP, up to symmetry (bonds) | 98.1% | 95.9% | 95.3% | 96.3% |
 | more bonds kept than LOMAP (bonds) | 0 | 1 | 20 | 2 |
 | fewer bonds kept than LOMAP (bonds) | 0 | 0 | 14 | 15 |
 | smaller change than LOMAP (change) | 2 | 11 | 133 | 68 |
@@ -130,20 +132,21 @@ by a wall-clock cutoff.
 
 "Same mapping, up to symmetry" means the same pairs of symmetry classes (RDKit canonical
 ranks without tie-breaking); in principle two mappings can share them without being related
-by a symmetry of the molecules. An isomorphism check of 6,451 of the cases, made outside
-these scripts, found none, here or in the symmetry table below.
+by a symmetry of the molecules. In the run of this benchmark with AtomMapper 0.1.0, an
+isomorphism check of 6,451 of the cases, made outside these scripts, found none, there or
+in the symmetry table.
 
 ### Symmetry
 
 Mapping B to A should give the reverse of mapping A to B. On the pairs where no run was
-stopped by the clock, the two directions give:
+stopped by a time limit, the two directions give:
 
 | | LOMAP: different bonds kept | LOMAP: different mapping | AtomMapper: either |
 |---|---|---|---|
 | FEP, elements free | 0 of 524 | 4 (0.8%) | 0 of 529 |
 | FEP, elements fixed | 1 of 515 | 6 (1.2%) | 0 of 529 |
-| AZ, elements free | 0 of 2,970 | 13 (0.4%) | 0 of 3,000 |
-| AZ, elements fixed | 1 of 2,956 | 22 (0.7%) | 0 of 3,000 |
+| AZ, elements free | 0 of 2,972 | 13 (0.4%) | 0 of 3,000 |
+| AZ, elements fixed | 1 of 2,958 | 22 (0.7%) | 0 of 3,000 |
 
 AtomMapper returns the reverse mapping, up to symmetry, on every pair of the benchmark, with
 either objective. Where LOMAP's two directions differ, they mostly keep the same bonds and choose
